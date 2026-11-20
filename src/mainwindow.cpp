@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -54,7 +55,7 @@ QWidget *deviceItem(const QString &icon, const QString &name, QLabel **status)
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
     setWindowTitle("LogiHub");
-    setWindowIcon(QIcon::fromTheme("input-gaming"));
+    setWindowIcon(theme::appIcon());
     resize(1180, 860);
 
     auto *central = new QWidget;
@@ -75,9 +76,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     brandSub->setObjectName("brandSub");
     auto *title = new QLabel(tr("URZĄDZENIA"));
     title->setObjectName("sidebarTitle");
-    for (auto *l : {brand, brandSub, title})
+    for (auto *l : {brandSub, title})
         l->setContentsMargins(22, 0, 22, 0);
-    sv->addWidget(brand);
+    auto *brandRow = new QHBoxLayout;
+    brandRow->setContentsMargins(20, 0, 20, 0);
+    brandRow->setSpacing(10);
+    auto *logo = new QLabel;
+    const qreal dpr = devicePixelRatioF();
+    QPixmap lp = theme::appIconPixmap(qRound(38 * dpr));
+    lp.setDevicePixelRatio(dpr);
+    logo->setPixmap(lp);
+    brandRow->addWidget(logo);
+    brandRow->addWidget(brand, 1);
+    sv->addLayout(brandRow);
+    sv->addSpacing(4);
     sv->addWidget(brandSub);
     sv->addSpacing(22);
     sv->addWidget(title);
@@ -115,7 +127,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         if (f.open(QIODevice::WriteOnly)) {
             f.write(QString("[Desktop Entry]\nType=Application\nName=LogiHub\n"
                             "Comment=Sterowanie urządzeniami Logitech\nExec=%1 --hidden\n"
-                            "Icon=input-gaming\nX-GNOME-Autostart-enabled=true\n")
+                            "Icon=logihub\nX-GNOME-Autostart-enabled=true\n")
                         .arg(QApplication::applicationFilePath())
                         .toUtf8());
         }
@@ -128,10 +140,35 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     });
     connect(qApp, &QApplication::aboutToQuit, this, [] { DspRunner::instance().stopAll(); });
 
-    auto *timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, this, &MainWindow::rescan);
-    timer->start(4000);
+    // Wykrywanie podłączenia: powiadomienia z /dev (inotify) zamiast odpytywania co kilka sekund.
+    auto *debounce = new QTimer(this);
+    debounce->setSingleShot(true);
+    debounce->setInterval(800);
+    connect(debounce, &QTimer::timeout, this, &MainWindow::rescan);
+    auto *watcher = new QFileSystemWatcher({"/dev"}, this);
+    connect(watcher, &QFileSystemWatcher::directoryChanged, debounce, qOverload<>(&QTimer::start));
+    auto *fallback = new QTimer(this); // zapas, gdyby inotify coś przegapił
+    connect(fallback, &QTimer::timeout, this, &MainWindow::rescan);
+    fallback->start(60000);
     rescan();
+}
+
+void MainWindow::setPagesActive(bool active)
+{
+    for (DevicePage *p : m_pages)
+        p->setActive(active);
+}
+
+void MainWindow::showEvent(QShowEvent *e)
+{
+    QMainWindow::showEvent(e);
+    setPagesActive(true);
+}
+
+void MainWindow::hideEvent(QHideEvent *e)
+{
+    QMainWindow::hideEvent(e);
+    setPagesActive(false);
 }
 
 void MainWindow::showTray()
@@ -207,6 +244,7 @@ void MainWindow::rescan()
             continue;
         auto *page = new DevicePage(d);
         connect(page, &DevicePage::statusChanged, this, &MainWindow::updateList);
+        page->setActive(isVisible());
         m_pages.append(page);
         m_stack->addWidget(page);
         auto *item = new QListWidgetItem;

@@ -17,8 +17,11 @@ public:
     void screenshotAll(const QString &dir);
 protected:
     void closeEvent(QCloseEvent *e) override;
+    void showEvent(QShowEvent *e) override;
+    void hideEvent(QHideEvent *e) override;
 private:
     void rescan();
+    void setPagesActive(bool active);
     void updateList();
     QListWidget *m_list;
     QStackedWidget *m_stack;

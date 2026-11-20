@@ -114,6 +114,8 @@ public:
     const DeviceInfo &info() const { return m_info; }
     QString statusText() const { return m_statusText; }
     QString iconName() const;
+    // Okno widoczne: odświeżanie co 20 s; schowane w zasobniku: co 5 min (mniej ruchu radiowego).
+    void setActive(bool active);
 signals:
     void statusChanged();
 private:

@@ -21,6 +21,9 @@ fi
 
 mkdir -p "$BIN_DIR" "$APPS"
 install -m 755 "$SRC/build/logihub" "$BIN_DIR/logihub"
+# Ikona (rysowana przez samą aplikację) w rozmiarach 16-256 px
+QT_QPA_PLATFORM=offscreen "$BIN_DIR/logihub" --export-icons "$HOME/.local/share/icons/hicolor"
+touch "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 cat > "$APPS/logihub.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -28,7 +31,8 @@ Name=LogiHub
 GenericName=Ustawienia urządzeń Logitech
 Comment=Mysz, mikrofon i słuchawki Logitech – DPI, przyciski, RGB, bateria
 Exec=$BIN_DIR/logihub
-Icon=input-gaming
+Icon=logihub
+StartupWMClass=logihub
 Categories=Settings;HardwareSettings;
 Keywords=logitech;ghub;mouse;dpi;rgb;
 EOF
@@ -38,4 +42,7 @@ if [[ "${1:-}" == "--autostart" ]]; then
     sed "s|^Exec=.*|Exec=$BIN_DIR/logihub --hidden|" "$APPS/logihub.desktop" > "$HOME/.config/autostart/logihub.desktop"
     echo "Autostart włączony."
 fi
+command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 >/dev/null 2>&1 || true # odśwież menu KDE
+# istniejący wpis autostartu - podmień ikonę
+[ -f "$HOME/.config/autostart/logihub.desktop" ] && sed -i 's/^Icon=.*/Icon=logihub/' "$HOME/.config/autostart/logihub.desktop"
 echo "Zainstalowano: $BIN_DIR/logihub (menu: LogiHub)"

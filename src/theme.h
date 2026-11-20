@@ -2,6 +2,7 @@
 // Wygląd w stylu G Hub: ciemne tło, karty, niebieski akcent, przełączniki.
 #include <QAbstractButton>
 #include <QFrame>
+#include <QIcon>
 
 class QLabel;
 class QVBoxLayout;
@@ -16,6 +17,11 @@ QLabel *hint(const QString &text);
 QLabel *chip(const QString &text);
 // Ikona urządzenia w kafelku z gradientem.
 QPixmap deviceTile(const QString &iconName, int size);
+// Ikona aplikacji (rysowana w kodzie - ostra w każdym rozmiarze, bez zależności od motywu).
+QPixmap appIconPixmap(int size);
+QIcon appIcon();
+// Zapisuje ikonę w strukturze hicolor (dla menu / pulpitu). Zwraca liczbę plików.
+int exportIcons(const QString &hicolorDir);
 }
 
 // Przełącznik wł./wył. jak w G Hub.

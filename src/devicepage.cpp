@@ -833,6 +833,15 @@ DevicePage::DevicePage(const DeviceInfo &info, QWidget *parent) : QWidget(parent
 
 DevicePage::~DevicePage() = default;
 
+void DevicePage::setActive(bool active)
+{
+    const int interval = active ? 20000 : 300000;
+    if (m_timer->interval() != interval)
+        m_timer->start(interval);
+    if (active)
+        QTimer::singleShot(0, this, &DevicePage::refresh);
+}
+
 QString DevicePage::iconName() const
 {
     if (m_info.name.startsWith("Yeti"))

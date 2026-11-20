@@ -12,6 +12,13 @@ int main(int argc, char **argv)
     QApplication::setApplicationDisplayName("LogiHub");
     QApplication::setDesktopFileName("logihub");
     QApplication::setQuitOnLastWindowClosed(false);
+
+    // logihub --export-icons <katalog hicolor>  (używane przez install.sh)
+    const int ei = app.arguments().indexOf("--export-icons");
+    if (ei >= 0 && ei + 1 < app.arguments().size())
+        return theme::exportIcons(app.arguments().at(ei + 1)) > 0 ? 0 : 1;
+
+    QApplication::setWindowIcon(theme::appIcon());
     theme::apply();
 
     MainWindow w;

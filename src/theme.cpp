@@ -1,6 +1,9 @@
 #include "theme.h"
 
 #include <QApplication>
+#include <QDir>
+#include <QtMath>
+#include <cmath>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
@@ -227,6 +230,87 @@ QPixmap deviceTile(const QString &iconName, int size)
     const qreal m = size * 0.18;
     drawDevice(p, iconName, QRectF(m, m, size - 2 * m, size - 2 * m));
     return pm;
+}
+
+QPixmap appIconPixmap(int size)
+{
+    QPixmap pm(size, size);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    const qreal s = size;
+    const bool tiny = size <= 24; // w zasobniku: mniej detali, grubsze linie
+
+    // kafelek
+    QPainterPath tile;
+    const qreal inset = tiny ? 0.5 : s * 0.04;
+    tile.addRoundedRect(QRectF(inset, inset, s - 2 * inset, s - 2 * inset), s * 0.22, s * 0.22);
+    QLinearGradient bg(0, 0, 0, s);
+    bg.setColorAt(0, QColor("#1a2740"));
+    bg.setColorAt(1, QColor("#070b12"));
+    p.fillPath(tile, bg);
+    QRadialGradient glow(QPointF(s * 0.5, s * 0.52), s * 0.48);
+    glow.setColorAt(0, QColor(0, 180, 255, 90));
+    glow.setColorAt(1, QColor(0, 180, 255, 0));
+    p.fillPath(tile, glow);
+    if (!tiny) {
+        p.setPen(QPen(QColor(0, 180, 255, 110), qMax<qreal>(1, s * 0.012)));
+        p.drawPath(tile);
+    }
+
+    // pierścień "hub" z przerwą u dołu + wypustki (urządzenia podłączone do huba)
+    const QPointF c(s * 0.5, s * 0.5);
+    const qreal r = s * (tiny ? 0.29 : 0.26);
+    QConicalGradient ring(c, -90);
+    ring.setColorAt(0, QColor("#00e0ff"));
+    ring.setColorAt(0.5, QColor("#0077ff"));
+    ring.setColorAt(1, QColor("#00e0ff"));
+    p.setPen(QPen(QBrush(ring), s * (tiny ? 0.13 : 0.085), Qt::SolidLine, Qt::RoundCap));
+    p.setBrush(Qt::NoBrush);
+    p.drawArc(QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r), -60 * 16, 300 * 16);
+    // środek
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor("#ffffff"));
+    const qreal d = s * (tiny ? 0.11 : 0.085);
+    p.drawEllipse(c, d, d);
+    if (!tiny) {
+        // trzy "węzły" na pierścieniu: mysz, słuchawki, mikrofon
+        p.setBrush(QColor("#e8f6ff"));
+        for (int deg : {150, 30, 270 - 180}) {
+            const double a = qDegreesToRadians(double(deg));
+            p.drawEllipse(QPointF(c.x() + r * std::cos(a), c.y() - r * std::sin(a)), s * 0.045, s * 0.045);
+        }
+        // odbłysk
+        QLinearGradient shine(0, 0, 0, s * 0.5);
+        shine.setColorAt(0, QColor(255, 255, 255, 28));
+        shine.setColorAt(1, QColor(255, 255, 255, 0));
+        QPainterPath top;
+        top.addRoundedRect(QRectF(inset, inset, s - 2 * inset, s * 0.45), s * 0.22, s * 0.22);
+        p.fillPath(top.intersected(tile), shine);
+    }
+    return pm;
+}
+
+QIcon appIcon()
+{
+    static QIcon icon = [] {
+        QIcon i;
+        for (int sz : {16, 22, 24, 32, 48, 64, 128, 256})
+            i.addPixmap(appIconPixmap(sz));
+        return i;
+    }();
+    return icon;
+}
+
+int exportIcons(const QString &hicolorDir)
+{
+    int n = 0;
+    for (int sz : {16, 22, 24, 32, 48, 64, 128, 256}) {
+        const QString dir = QString("%1/%2x%2/apps").arg(hicolorDir).arg(sz);
+        QDir().mkpath(dir);
+        n += appIconPixmap(sz).save(dir + "/logihub.png") ? 1 : 0;
+    }
+    return n;
 }
 
 } // namespace theme
