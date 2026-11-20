@@ -26,7 +26,7 @@ QIcon iconFor(const QString &name)
 {
     if (name.startsWith("Yeti"))
         return QIcon::fromTheme("audio-input-microphone");
-    if (name.startsWith("G7") || name.startsWith("G5") || name.contains("Headset") || name.startsWith("PRO X"))
+    if (name.contains("Headset") || name.startsWith("Astro"))
         return QIcon::fromTheme("audio-headset");
     return QIcon::fromTheme("input-mouse");
 }
