@@ -27,7 +27,8 @@ context.modules = [
     { name = libpipewire-module-adapter }
 )PW";
 
-const QString kCaps = "/usr/lib64/ladspa/caps.so";
+// Wtyczki CAPS (LADSPA) - ścieżka zależy od dystrybucji; pusta, gdy brak.
+const QString kCaps = dsp::capsPath();
 
 QString quoteDesc(QString s)
 {
@@ -217,12 +218,30 @@ void SidetoneSettings::save(QSettings &s, const QString &p) const
 // ================= Generowanie konfiguracji =================
 namespace dsp {
 
+QString capsPath()
+{
+    for (const char *p : {"/usr/lib64/ladspa/caps.so", "/usr/lib/ladspa/caps.so",
+                          "/usr/lib/x86_64-linux-gnu/ladspa/caps.so", "/usr/local/lib/ladspa/caps.so"})
+        if (QFile::exists(p))
+            return p;
+    return {};
+}
+
+bool webrtcAvailable()
+{
+    for (const char *p : {"/usr/lib64/spa-0.2/aec/libspa-aec-webrtc.so", "/usr/lib/spa-0.2/aec/libspa-aec-webrtc.so",
+                          "/usr/lib/x86_64-linux-gnu/spa-0.2/aec/libspa-aec-webrtc.so"})
+        if (QFile::exists(p))
+            return true;
+    return false;
+}
+
 QString voiceConf(const QString &id, const QString &description, const QString &micNode, const VoiceSettings &v)
 {
     const QString base = "logihub." + id;
     QString c = kHeader;
     QString source = micNode;
-    if (v.noiseReduction) {
+    if (v.noiseReduction && dsp::webrtcAvailable()) {
         c += QString(R"PW(    { name = libpipewire-module-echo-cancel
       args = {
         library.name = aec/libspa-aec-webrtc
@@ -252,7 +271,7 @@ QString voiceConf(const QString &id, const QString &description, const QString &
     if (v.highpass)
         add("hp", QString(R"PW({ type = builtin name = hp label = bq_highpass control = { "Freq" = %1 "Q" = 0.707 } })PW")
                       .arg(num(v.highpassHz)), "In", "Out");
-    if (v.gate)
+    if (v.gate && !kCaps.isEmpty())
         add("gate", QString(R"PW({ type = ladspa name = gate plugin = "%1" label = Noisegate control = { "open (dB)" = %2 "close (dB)" = %3 "attack (ms)" = 1.0 "mains (Hz)" = 0.0 } })PW")
                         .arg(kCaps, num(v.gateOpenDb), num(qMax(-80, v.gateOpenDb - 15))), "in", "out");
     if (v.deesser)
@@ -264,12 +283,12 @@ QString voiceConf(const QString &id, const QString &description, const QString &
                     .arg(num(v.presenceDb)), "In", "Out");
     add("air", QString(R"PW({ type = builtin name = air label = bq_highshelf control = { "Freq" = 10000.0 "Q" = 0.707 "Gain" = %1 } })PW")
                    .arg(num(v.airDb)), "In", "Out");
-    if (v.compressor)
+    if (v.compressor && !kCaps.isEmpty())
         add("comp", QString(R"PW({ type = ladspa name = comp plugin = "%1" label = Compress control = { "measure" = 1.0 "mode" = 0.0 "threshold" = %2 "strength" = %3 "attack" = 0.1 "release" = 0.3 "gain (dB)" = 0.0 } })PW")
                         .arg(kCaps, num(v.compThreshold / 100.0), num(v.compStrength / 100.0)), "in", "out");
     add("gain", QString(R"PW({ type = builtin name = gain label = linear control = { "Mult" = %1 "Add" = 0.0 } })PW")
                     .arg(num(std::pow(10.0, v.outGainDb / 20.0))), "In", "Out");
-    if (v.limiter)
+    if (v.limiter && !kCaps.isEmpty())
         add("lim", QString(R"PW({ type = ladspa name = lim plugin = "%1" label = Compress control = { "measure" = 0.0 "mode" = 2.0 "threshold" = 0.9 "strength" = 1.0 "attack" = 0.0 "release" = 0.2 "gain (dB)" = 0.0 } })PW")
                        .arg(kCaps), "in", "out");
 

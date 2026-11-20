@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
-project(logihub VERSION 0.1 LANGUAGES CXX)
+project(logihub VERSION 0.1.0 LANGUAGES CXX)
+add_compile_definitions(LOGIHUB_VERSION="${PROJECT_VERSION}")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,7 +17,7 @@ target_include_directories(logicore PUBLIC src)
 target_link_libraries(logicore PUBLIC Qt6::Core Qt6::Network)
 
 add_executable(logihub src/main.cpp src/mainwindow.cpp src/devicepage.cpp src/theme.cpp src/audiowidgets.cpp
-    src/mousediagram.cpp src/rgbpanel.cpp)
+    src/mousediagram.cpp src/rgbpanel.cpp src/updater.cpp)
 target_link_libraries(logihub PRIVATE logicore Qt6::Widgets)
 
 enable_testing()

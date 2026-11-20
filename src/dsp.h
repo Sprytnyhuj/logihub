@@ -50,6 +50,9 @@ struct SidetoneSettings {
 };
 
 namespace dsp {
+// Opcjonalne zależności - gdy ich brak, odpowiednie moduły Blue VO!CE są pomijane.
+QString capsPath();      // wtyczki CAPS (bramka, kompresor, limiter); pusty gdy brak
+bool webrtcAvailable();  // moduł redukcji szumów/echa PipeWire (aec-webrtc)
 QString voiceConf(const QString &id, const QString &description, const QString &micNode, const VoiceSettings &v);
 QString eqConf(const QString &id, const QString &description, const QString &sinkNode, const EqSettings &e);
 QString sidetoneConf(const QString &id, const QString &micNode, const QString &sinkNode, int volume);

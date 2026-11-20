@@ -3,6 +3,14 @@
 #include "audio.h"
 #include "dsp.h"
 #include "rgbpanel.h"
+#include "updater.h"
+
+#include <QDateTime>
+#include <QDesktopServices>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QSettings>
+#include <QStatusBar>
 #include "theme.h"
 
 #include <QAction>
@@ -79,7 +87,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     sv->setSpacing(4);
     auto *brand = new QLabel("LOGIHUB");
     brand->setObjectName("brand");
-    auto *brandSub = new QLabel(tr("urządzenia Logitech G na Linuksie"));
+    auto *brandSub = new QLabel(tr("urządzenia Logitech G na Linuksie · v%1").arg(Updater::currentVersion()));
     brandSub->setObjectName("brandSub");
     auto *title = new QLabel(tr("URZĄDZENIA"));
     title->setObjectName("sidebarTitle");
@@ -140,6 +148,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         }
     });
     menu->addAction(tr("Odśwież urządzenia"), this, &MainWindow::rescan);
+    m_updateAction = menu->addAction(tr("Sprawdź aktualizacje"), this, [this] {
+        if (!m_updater->latestVersion().isEmpty() && m_updateAction->property("available").toBool())
+            askToUpdate();
+        else
+            m_updater->check(true);
+    });
+    setupUpdates();
     menu->addSeparator();
     menu->addAction(tr("Zakończ"), this, [this] {
         m_quitting = true;
@@ -159,6 +174,62 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     connect(fallback, &QTimer::timeout, this, &MainWindow::rescan);
     fallback->start(60000);
     rescan();
+}
+
+void MainWindow::setupUpdates()
+{
+    m_updater = new Updater(this);
+    connect(m_updater, &Updater::updateAvailable, this, [this](const QString &v, const QString &, bool manual) {
+        m_updateAction->setText(tr("Zainstaluj aktualizację %1…").arg(v));
+        m_updateAction->setProperty("available", true);
+        if (m_tray)
+            m_tray->showMessage("LogiHub", tr("Dostępna nowa wersja %1 – menu Aplikacja.").arg(v), theme::appIcon(), 8000);
+        if (manual || isVisible())
+            askToUpdate();
+    });
+    connect(m_updater, &Updater::upToDate, this, [this](bool manual) {
+        if (manual)
+            QMessageBox::information(this, tr("Aktualizacje"),
+                                     tr("Masz najnowszą wersję (%1).").arg(Updater::currentVersion()));
+    });
+    connect(m_updater, &Updater::failed, this, [this](const QString &msg, bool manual) {
+        if (manual)
+            QMessageBox::warning(this, tr("Aktualizacje"), msg);
+    });
+    connect(m_updater, &Updater::progress, this, [this](const QString &msg) { statusBar()->showMessage(msg); });
+
+    // Automatycznie raz na dobę, chwilę po starcie
+    QTimer::singleShot(15000, this, [this] {
+        QSettings s;
+        const QDateTime last = s.value("updates/lastCheck").toDateTime();
+        if (last.isValid() && last.secsTo(QDateTime::currentDateTime()) < 24 * 3600)
+            return;
+        s.setValue("updates/lastCheck", QDateTime::currentDateTime());
+        m_updater->check(false);
+    });
+}
+
+void MainWindow::askToUpdate()
+{
+    const QString v = m_updater->latestVersion();
+    if (Updater::isBundle()) {
+        if (QMessageBox::question(this, tr("Aktualizacja"),
+                                  tr("Dostępna jest wersja %1 (masz %2).\n\nPobrać i zainstalować teraz? "
+                                     "LogiHub uruchomi się ponownie.")
+                                      .arg(v, Updater::currentVersion()))
+            == QMessageBox::Yes)
+            m_updater->install();
+    } else {
+        QMessageBox box(QMessageBox::Information, tr("Aktualizacja"),
+                        tr("Dostępna jest wersja %1 (masz %2).\n\nLogiHub jest zainstalowany ze źródeł – "
+                           "zaktualizuj w katalogu repozytorium:\n\n    git pull && ./install.sh")
+                            .arg(v, Updater::currentVersion()),
+                        QMessageBox::Ok, this);
+        auto *open = box.addButton(tr("Co nowego…"), QMessageBox::HelpRole);
+        box.exec();
+        if (box.clickedButton() == open)
+            QDesktopServices::openUrl(m_updater->releasePage());
+    }
 }
 
 void MainWindow::setPagesActive(bool active)

@@ -1,5 +1,8 @@
 #include "mainwindow.h"
 #include "theme.h"
+#include "updater.h"
+
+#include <cstdio>
 
 #include <QApplication>
 #include <QLocalServer>
@@ -19,6 +22,30 @@ int main(int argc, char **argv)
     const int ei = app.arguments().indexOf("--export-icons");
     if (ei >= 0 && ei + 1 < app.arguments().size())
         return theme::exportIcons(app.arguments().at(ei + 1)) > 0 ? 0 : 1;
+
+    // logihub --check-update  - sprawdza GitHub Releases i wypisuje wynik (bez okna)
+    if (app.arguments().contains("--check-update")) {
+        Updater u;
+        int rc = 2;
+        QObject::connect(&u, &Updater::updateAvailable, [&](const QString &v, const QString &, bool) {
+            std::printf("dostępna aktualizacja: %s (obecna %s)\n", qPrintable(v), qPrintable(Updater::currentVersion()));
+            rc = 0;
+            app.quit();
+        });
+        QObject::connect(&u, &Updater::upToDate, [&](bool) {
+            std::printf("aktualna wersja: %s (najnowsza %s)\n", qPrintable(Updater::currentVersion()),
+                        qPrintable(u.latestVersion()));
+            rc = 0;
+            app.quit();
+        });
+        QObject::connect(&u, &Updater::failed, [&](const QString &m, bool) {
+            std::printf("błąd: %s\n", qPrintable(m));
+            app.quit();
+        });
+        u.check(true);
+        app.exec();
+        return rc;
+    }
 
     // Tryb testowy: LOGIHUB_SCREENSHOT=katalog - zrzut każdej strony i wyjście (do testów offscreen).
     const QString shots = qEnvironmentVariable("LOGIHUB_SCREENSHOT");

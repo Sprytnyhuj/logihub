@@ -177,6 +177,15 @@ VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString
     defRow->addStretch();
     defRow->addWidget(def);
     body->addLayout(defRow);
+    QStringList missing;
+    if (dsp::capsPath().isEmpty())
+        missing << tr("bramka, kompresor i limiter – brak wtyczek CAPS (Fedora: ladspa-caps-plugins, "
+                      "Ubuntu/Arch: caps)");
+    if (!dsp::webrtcAvailable())
+        missing << tr("redukcja szumów – brak modułu PipeWire aec-webrtc");
+    if (!missing.isEmpty())
+        body->addWidget(theme::hint(tr("⚠ Niedostępne w tym systemie: %1. Pozostałe efekty działają.")
+                                        .arg(missing.join("; "))));
 
     m_modules = new QWidget;
     auto *grid = new QGridLayout(m_modules);

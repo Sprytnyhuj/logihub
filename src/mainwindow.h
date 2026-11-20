@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 
+class QAction;
 class QLabel;
 class QListWidget;
 class QStackedWidget;
@@ -22,6 +23,10 @@ protected:
 private:
     void rescan();
     void setPagesActive(bool active);
+    void setupUpdates();
+    void askToUpdate();
+    class Updater *m_updater = nullptr;
+    QAction *m_updateAction = nullptr;
     void updateList();
     QListWidget *m_list;
     QStackedWidget *m_stack;
