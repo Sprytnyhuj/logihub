@@ -11,6 +11,7 @@ APPS="$HOME/.local/share/applications"
 
 if [[ "${1:-}" == "--uninstall" ]]; then
     pkill -x logihub 2>/dev/null || true
+    pkill -f "pipewire -c $HOME/.local/state/logihub/" 2>/dev/null || true
     rm -rf "$APP" "$BIN" "$APPS/logihub.desktop" "$HOME/.config/autostart/logihub.desktop"
     find "$HOME/.local/share/icons/hicolor" -name logihub.png -delete 2>/dev/null || true
     echo "Usunięto LogiHub (ustawienia zostały w ~/.config/logihub)."
@@ -18,6 +19,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 fi
 
 pkill -x logihub 2>/dev/null || true
+pkill -f "pipewire -c $HOME/.local/state/logihub/" 2>/dev/null || true  # efekty audio starszych wersji
 rm -rf "$APP"
 mkdir -p "$APP" "$(dirname "$BIN")" "$APPS"
 cp -r "$HERE/bin" "$HERE/lib" "$HERE/plugins" "$APP/"

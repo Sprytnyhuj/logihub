@@ -2,7 +2,13 @@
 #include "theme.h"
 #include "updater.h"
 
+#include "dsp.h"
+
+#include <QSocketNotifier>
+#include <csignal>
 #include <cstdio>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include <QApplication>
 #include <QDir>
@@ -74,6 +80,26 @@ int main(int argc, char **argv)
         QLocalServer::removeServer(sockName);
         server.listen(sockName);
     }
+
+    // Zamknięcie sygnałem (pkill, wylogowanie, aktualizacja) = zwykłe wyjście, z zatrzymaniem efektów audio.
+    static int sigFd[2] = {-1, -1};
+    QSocketNotifier *sigNotifier = nullptr;
+    if (::socketpair(AF_UNIX, SOCK_STREAM, 0, sigFd) == 0) {
+        for (int s : {SIGTERM, SIGINT, SIGHUP})
+            std::signal(s, [](int) {
+                const char b = 1;
+                [[maybe_unused]] auto r = ::write(sigFd[0], &b, 1);
+            });
+        sigNotifier = new QSocketNotifier(sigFd[1], QSocketNotifier::Read, &app);
+        QObject::connect(sigNotifier, &QSocketNotifier::activated, &app, [&app] {
+            char b;
+            [[maybe_unused]] auto r = ::read(sigFd[1], &b, 1);
+            app.quit();
+        });
+    }
+    // Osierocone łańcuchy audio po starszych wersjach - tylko dla zwykłej konfiguracji użytkownika
+    if (shots.isEmpty() && cfg == QDir::homePath() + "/.config")
+        DspRunner::killStale();
 
     QApplication::setWindowIcon(theme::appIcon());
     theme::apply();

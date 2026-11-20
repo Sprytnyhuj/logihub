@@ -67,6 +67,8 @@ public:
     void start(const QString &id, const QString &conf);
     void stop(const QString &id);
     void stopAll();
+    // Zamyka osierocone łańcuchy z poprzednich uruchomień; zwraca ich liczbę.
+    static int killStale();
     bool running(const QString &id) const;
     // Zmiana parametrów bez restartu - node = node.name węzła capture filtra.
     void setControls(const QString &node, const QList<QPair<QString, double>> &controls);

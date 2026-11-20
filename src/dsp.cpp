@@ -8,6 +8,8 @@
 #include <QSettings>
 #include <QTimer>
 #include <cmath>
+#include <csignal>
+#include <sys/prctl.h>
 
 namespace {
 QString num(double v)
@@ -398,6 +400,8 @@ void DspRunner::start(const QString &id, const QString &conf)
     f.write(conf.toUtf8());
     f.close();
     auto *p = new QProcess(this);
+    // Proces efektu ginie razem z LogiHub (także po awarii / kill -9) - bez osieroconych łańcuchów.
+    p->setChildProcessModifier([] { ::prctl(PR_SET_PDEATHSIG, SIGTERM); });
     p->setProcessChannelMode(QProcess::ForwardedErrorChannel);
     p->setStandardOutputFile(QProcess::nullDevice());
     p->start("pipewire", {"-c", path});
@@ -414,6 +418,29 @@ void DspRunner::stop(const QString &id)
         p->deleteLater();
     }
     m_confs.remove(id);
+}
+
+int DspRunner::killStale()
+{
+    // Łańcuchy pozostawione przez wcześniejsze uruchomienia (np. starsza wersja zamknięta sygnałem).
+    const QString stateDir = QDir::homePath() + "/.local/state/logihub/";
+    int killed = 0;
+    for (const QString &pid : QDir("/proc").entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        bool num = false;
+        const int n = pid.toInt(&num);
+        if (!num || n == QCoreApplication::applicationPid())
+            continue;
+        QFile f("/proc/" + pid + "/cmdline");
+        if (!f.open(QIODevice::ReadOnly))
+            continue;
+        const QList<QByteArray> args = f.readAll().split('\0');
+        if (args.size() >= 3 && args[0].endsWith("pipewire") && args[1] == "-c"
+            && QString::fromLocal8Bit(args[2]).startsWith(stateDir)) {
+            if (::kill(n, SIGTERM) == 0)
+                ++killed;
+        }
+    }
+    return killed;
 }
 
 void DspRunner::stopAll()
