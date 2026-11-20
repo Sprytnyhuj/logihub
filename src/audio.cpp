@@ -1,6 +1,8 @@
 #include "audio.h"
 
 #include <QFile>
+#include <QHash>
+#include <QMap>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -22,6 +24,57 @@ QByteArray run(const QString &prog, const QStringList &args, int timeoutMs = 200
 }
 
 namespace audio {
+
+QList<AudioDevice> externalDevices()
+{
+    const auto doc = QJsonDocument::fromJson(run("pw-dump", {}, 4000));
+    QHash<int, QString> deviceDesc;
+    for (const auto &v : doc.array()) {
+        const QJsonObject o = v.toObject();
+        if (o.value("type").toString() == "PipeWire:Interface:Device")
+            deviceDesc.insert(o.value("id").toInt(),
+                              o.value("info").toObject().value("props").toObject().value("device.description").toString());
+    }
+    QMap<int, AudioDevice> byDevice;
+    for (const auto &v : doc.array()) {
+        const QJsonObject o = v.toObject();
+        if (o.value("type").toString() != "PipeWire:Interface:Node")
+            continue;
+        const QJsonObject props = o.value("info").toObject().value("props").toObject();
+        const QString nm = props.value("node.name").toString();
+        const QString cls = props.value("media.class").toString();
+        const bool bt = nm.startsWith("bluez_");
+        // LOGIHUB_AUDIO_ALL=1 - także karty wbudowane / HDMI (np. do testów albo EQ na głośnikach)
+        static const bool all = qEnvironmentVariableIntValue("LOGIHUB_AUDIO_ALL") == 1;
+        const bool usb = nm.startsWith("alsa_") && (all || nm.contains(".usb-"));
+        if ((!bt && !usb) || nm.contains("Logitech", Qt::CaseInsensitive) || nm.contains(".monitor"))
+            continue;
+        if (cls != "Audio/Sink" && cls != "Audio/Source")
+            continue;
+        const int dev = props.value("device.id").toInt(-1);
+        AudioDevice &d = byDevice[dev >= 0 ? dev : -o.value("id").toInt()];
+        d.bluetooth = bt;
+        if (d.description.isEmpty())
+            d.description = deviceDesc.value(dev, props.value("node.description").toString());
+        (cls == "Audio/Sink" ? d.sinkNode : d.sourceNode) = nm;
+    }
+    return byDevice.values();
+}
+
+QList<AudioNode> nodesByName(const QStringList &names)
+{
+    QList<AudioNode> out;
+    const auto doc = QJsonDocument::fromJson(run("pw-dump", {}, 4000));
+    for (const auto &v : doc.array()) {
+        const QJsonObject o = v.toObject();
+        const QJsonObject props = o.value("info").toObject().value("props").toObject();
+        const QString nm = props.value("node.name").toString();
+        if (!nm.isEmpty() && names.contains(nm))
+            out.append({o.value("id").toInt(), nm, props.value("node.description").toString(),
+                        props.value("media.class").toString() == "Audio/Sink"});
+    }
+    return out;
+}
 
 int nodeIdByName(const QString &nodeName)
 {

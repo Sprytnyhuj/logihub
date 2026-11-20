@@ -1,4 +1,5 @@
 #pragma once
+#include "audio.h"
 #include "dsp.h"
 
 #include <QWidget>
@@ -81,6 +82,7 @@ private:
 
 // Głośność / wyciszenie wszystkich węzłów audio urządzenia.
 QWidget *volumeCard(const QString &keyword, bool sinks, bool sources, const QString &title);
+QWidget *volumeCardFor(const QList<AudioNode> &nodes, const QString &title);
 // Sprzętowe wzmocnienie mikrofonu (ALSA); nullptr gdy brak.
 QWidget *hwGainCard(const QString &keyword);
 // Wiersz suwaka z etykietą wartości.

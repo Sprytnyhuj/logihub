@@ -498,6 +498,11 @@ QWidget *volumeCard(const QString &keyword, bool sinks, bool sources, const QStr
     for (const AudioNode &n : audio::findNodes(keyword))
         if ((n.isSink && sinks) || (!n.isSink && sources))
             nodes << n;
+    return volumeCardFor(nodes, title);
+}
+
+QWidget *volumeCardFor(const QList<AudioNode> &nodes, const QString &title)
+{
     if (nodes.isEmpty())
         return nullptr;
     QVBoxLayout *body;

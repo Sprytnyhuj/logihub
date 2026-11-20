@@ -1,6 +1,8 @@
 #include "mainwindow.h"
 #include "devicepage.h"
+#include "audio.h"
 #include "dsp.h"
+#include "rgbpanel.h"
 #include "theme.h"
 
 #include <QAction>
@@ -40,7 +42,12 @@ QWidget *deviceItem(const QString &icon, const QString &name, QLabel **status)
     h->addWidget(tile);
     auto *v = new QVBoxLayout;
     v->setSpacing(2);
-    auto *n = new QLabel(name);
+    auto *n = new QLabel;
+    QFont bold = n->font();
+    bold.setPointSizeF(10.5);
+    bold.setBold(true);
+    n->setText(QFontMetrics(bold).elidedText(name, Qt::ElideRight, 170)); // długie nazwy: „…”
+    n->setToolTip(name);
     n->setObjectName("devName");
     auto *s = new QLabel;
     s->setObjectName("devStatus");
@@ -145,7 +152,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     debounce->setSingleShot(true);
     debounce->setInterval(800);
     connect(debounce, &QTimer::timeout, this, &MainWindow::rescan);
-    auto *watcher = new QFileSystemWatcher({"/dev"}, this);
+    // /dev - hidraw; /dev/snd - karty USB audio; /dev/input - m.in. słuchawki Bluetooth
+    auto *watcher = new QFileSystemWatcher({"/dev", "/dev/snd", "/dev/input"}, this);
     connect(watcher, &QFileSystemWatcher::directoryChanged, debounce, qOverload<>(&QTimer::start));
     auto *fallback = new QTimer(this); // zapas, gdyby inotify coś przegapił
     connect(fallback, &QTimer::timeout, this, &MainWindow::rescan);
@@ -224,7 +232,26 @@ void MainWindow::closeEvent(QCloseEvent *e)
 
 void MainWindow::rescan()
 {
-    const QList<DeviceInfo> found = scanDevices();
+    QList<DeviceInfo> found = scanDevices();
+    // Słuchawki / mikrofony innych firm (USB, Bluetooth) - programowe funkcje audio
+    for (const AudioDevice &a : audio::externalDevices()) {
+        DeviceInfo d;
+        d.kind = "audio";
+        d.name = a.description;
+        d.key = "audio/" + a.description;
+        d.sinkNode = a.sinkNode;
+        d.sourceNode = a.sourceNode;
+        d.wireless = a.bluetooth;
+        found << d;
+    }
+    // RGB innych firm przez serwer OpenRGB
+    if (RgbPanel::serverAvailable()) {
+        DeviceInfo d;
+        d.kind = "openrgb";
+        d.name = tr("RGB – wszystkie urządzenia");
+        d.key = "openrgb";
+        found << d;
+    }
     bool changed = false;
     for (int i = m_pages.size() - 1; i >= 0; --i) {
         if (!found.contains(m_pages[i]->info())) {
@@ -273,8 +300,11 @@ void MainWindow::updateList()
     for (int i = 0; i < m_pages.size() && i < m_status.size(); ++i) {
         const QString st = m_pages[i]->statusText();
         const DeviceInfo &d = m_pages[i]->info();
-        m_status[i]->setText(st.isEmpty() ? (d.wireless ? tr("Lightspeed") : tr("USB"))
-                                          : QString("🔋 %1").arg(st));
+        const QString conn = d.kind == "openrgb" ? tr("OpenRGB")
+                             : d.kind == "audio" ? (d.wireless ? tr("Bluetooth") : tr("USB audio"))
+                             : d.wireless        ? tr("Lightspeed")
+                                                 : tr("USB");
+        m_status[i]->setText(st.isEmpty() ? conn : QString("🔋 %1").arg(st));
         if (!st.isEmpty())
             tip << QString("%1: %2").arg(d.name, st);
     }

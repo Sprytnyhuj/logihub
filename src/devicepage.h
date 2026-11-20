@@ -131,6 +131,7 @@ private:
     void buildMouse();
     void buildMic();
     void buildHeadset();
+    void buildGenericAudio();
     void refresh();
     void applySaved();
     QWidget *tab(const QString &title, const QList<QWidget *> &cards);

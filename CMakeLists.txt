@@ -8,14 +8,15 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Network Test)
 
-add_library(logicore STATIC src/hidpp.cpp src/onboard.cpp src/devices.cpp src/audio.cpp src/dsp.cpp)
+add_library(logicore STATIC src/hidpp.cpp src/onboard.cpp src/devices.cpp src/audio.cpp src/dsp.cpp
+    src/openrgb.cpp)
 target_include_directories(logicore PUBLIC src)
-target_link_libraries(logicore PUBLIC Qt6::Core)
+target_link_libraries(logicore PUBLIC Qt6::Core Qt6::Network)
 
 add_executable(logihub src/main.cpp src/mainwindow.cpp src/devicepage.cpp src/theme.cpp src/audiowidgets.cpp
-    src/mousediagram.cpp)
+    src/mousediagram.cpp src/rgbpanel.cpp)
 target_link_libraries(logihub PRIVATE logicore Qt6::Widgets)
 
 enable_testing()

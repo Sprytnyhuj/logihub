@@ -10,7 +10,18 @@ struct AudioNode {
     bool isSink = true;  // false = źródło (mikrofon)
 };
 
+// Fizyczne urządzenie audio innej firmy (USB / Bluetooth) - wyjście i/lub mikrofon.
+struct AudioDevice {
+    QString description;
+    QString sinkNode;   // node.name wyjścia (pusty gdy brak)
+    QString sourceNode; // node.name mikrofonu (pusty gdy brak)
+    bool bluetooth = false;
+};
+
 namespace audio {
+// Urządzenia USB/Bluetooth spoza Logitecha (Logitech ma własne strony).
+QList<AudioDevice> externalDevices();
+QList<AudioNode> nodesByName(const QStringList &names);
 // Fizyczne urządzenia pasujące do słowa kluczowego (bez węzłów utworzonych przez LogiHub).
 QList<AudioNode> findNodes(const QString &keyword);
 int nodeIdByName(const QString &nodeName);

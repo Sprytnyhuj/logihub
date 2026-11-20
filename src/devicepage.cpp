@@ -2,6 +2,7 @@
 #include "audio.h"
 #include "audiowidgets.h"
 #include "mousediagram.h"
+#include "rgbpanel.h"
 #include "theme.h"
 
 #include <QButtonGroup>
@@ -885,7 +886,10 @@ DevicePage::DevicePage(const DeviceInfo &info, QWidget *parent) : QWidget(parent
     texts->addWidget(title);
     auto *chips = new QHBoxLayout;
     chips->setSpacing(8);
-    m_conn = theme::chip(info.wireless ? tr("LIGHTSPEED") : tr("USB"));
+    m_conn = theme::chip(info.kind == "openrgb" ? tr("OpenRGB")
+                         : info.kind == "audio" ? (info.wireless ? tr("BLUETOOTH") : tr("USB AUDIO"))
+                         : info.wireless        ? tr("LIGHTSPEED")
+                                                : tr("USB"));
     m_battery = theme::chip({});
     m_battery->setVisible(false);
     chips->addWidget(m_conn);
@@ -923,6 +927,10 @@ void DevicePage::setActive(bool active)
 
 QString DevicePage::iconName() const
 {
+    if (m_info.kind == "openrgb")
+        return "rgb";
+    if (m_info.kind == "audio")
+        return m_info.sinkNode.isEmpty() ? "audio-input-microphone" : "audio-headset";
     if (m_info.name.startsWith("Yeti"))
         return "audio-input-microphone";
     if (m_info.name.contains("Headset") || m_info.name.startsWith("Astro"))
@@ -968,7 +976,11 @@ void DevicePage::build()
     m_root->addWidget(tabsWrap, 1);
 
     const bool isMouse = m_dev && (m_dev->has(feat::OnboardProfiles) || m_dev->has(feat::AdjustableDpi));
-    if (isMouse)
+    if (m_info.kind == "openrgb")
+        tab(tr("Podświetlenie"), {new RgbPanel});
+    else if (m_info.kind == "audio")
+        buildGenericAudio();
+    else if (isMouse)
         buildMouse();
     else if (m_info.name.startsWith("Yeti"))
         buildMic();
@@ -1039,6 +1051,28 @@ void DevicePage::buildHeadset()
                                 "nieopisanego protokołu Logitecha (raporty 0xF0–0xF3). Equalizer, Blue VO!CE i "
                                 "sidetone działają tu programowo – jak w G Hub.")));
     tab(tr("Dźwięk"), {volumeCard(kw, true, false, tr("Głośność słuchawek")), info});
+}
+
+void DevicePage::buildGenericAudio()
+{
+    // Słuchawki / mikrofon innej firmy: te same programowe funkcje co dla Logitecha.
+    const QString sink = m_info.sinkNode, mic = m_info.sourceNode;
+    if (!sink.isEmpty())
+        tab(tr("Equalizer"), {new EqEditor(m_info.key, "eq-" + slug(), m_info.name + " – Equalizer", sink)});
+    if (!mic.isEmpty())
+        tab("Blue VO!CE", {new VoiceEditor(m_info.key, "voice-" + slug(), m_info.name + " – Blue VO!CE", mic)});
+    QWidget *side = nullptr;
+    if (!mic.isEmpty())
+        side = new SidetoneCard(m_info.key, "sidetone-" + slug(), mic, sink,
+                                sink.isEmpty() ? tr("Odsłuch mikrofonu") : tr("Sidetone"),
+                                sink.isEmpty() ? tr("Słyszysz własny głos w domyślnym wyjściu.")
+                                               : tr("Słyszysz swój głos w tych słuchawkach (programowo)."));
+    QStringList nodes;
+    if (!sink.isEmpty())
+        nodes << sink;
+    if (!mic.isEmpty())
+        nodes << mic;
+    tab(tr("Dźwięk"), {volumeCardFor(audio::nodesByName(nodes), tr("Głośność")), side});
 }
 
 QWidget *DevicePage::buildMode()

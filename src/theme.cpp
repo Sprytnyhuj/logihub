@@ -159,6 +159,20 @@ void drawDevice(QPainter &p, const QString &kind, const QRectF &r)
     body.setColorAt(1, QColor("#9fb0c8"));
     QPen line(QColor("#0d1520"), qMax<qreal>(1.2, w * 0.035), Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     QPen glow(QColor(theme::Accent), qMax<qreal>(1.5, w * 0.06), Qt::SolidLine, Qt::RoundCap);
+    if (kind == "rgb") { // trzy nakładające się koła R, G, B
+        p.setCompositionMode(QPainter::CompositionMode_Plus);
+        p.setPen(Qt::NoPen);
+        const qreal rr = w * 0.27;
+        const QList<QPair<QPointF, QColor>> dots = {{QPointF(X(0.5), Y(0.34)), QColor(255, 50, 80, 220)},
+                                                    {QPointF(X(0.36), Y(0.6)), QColor(40, 220, 120, 220)},
+                                                    {QPointF(X(0.64), Y(0.6)), QColor(0, 150, 255, 230)}};
+        for (const auto &d : dots) {
+            p.setBrush(d.second);
+            p.drawEllipse(d.first, rr, rr);
+        }
+        p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        return;
+    }
     if (kind.contains("mouse")) {
         QPainterPath m;
         m.addRoundedRect(QRectF(X(0.27), Y(0.08), w * 0.46, w * 0.84), w * 0.23, w * 0.23);
