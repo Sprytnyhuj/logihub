@@ -143,7 +143,7 @@ QString PresetBar::current() const
     return m_combo->currentData().toString();
 }
 
-// ======================= Blue VO!CE =======================
+// ======================= Voice FX (w stylu Blue VO!CE) =======================
 VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString &description,
                          const QString &micNode, QWidget *parent)
     : QWidget(parent), m_key(devKey + "/voice/"), m_id(id), m_desc(description), m_mic(micNode)
@@ -162,9 +162,10 @@ VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString
     m_enabled = new Toggle;
     QVBoxLayout *body;
     outer->addWidget(theme::card(
-        "Blue VO!CE",
-        tr("Przetwarzanie głosu w czasie rzeczywistym – tak jak w G Hub. Tworzy mikrofon „%1”, "
-           "który po włączeniu staje się domyślnym mikrofonem (Discord, gry, OBS).").arg(description),
+        "Voice FX",
+        tr("Przetwarzanie głosu w czasie rzeczywistym, w stylu Blue VO!CE z G Hub (własne efekty LogiHub, "
+           "nie algorytmy Logitecha). Tworzy mikrofon „%1”, który po włączeniu staje się domyślnym "
+           "mikrofonem (Discord, gry, OBS).").arg(description),
         &body, m_enabled));
     QList<QPair<QString, QString>> builtins;
     const QStringList names = VoiceSettings::presetNames();
@@ -178,11 +179,10 @@ VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString
     defRow->addWidget(def);
     body->addLayout(defRow);
     QStringList missing;
-    if (dsp::capsPath().isEmpty())
-        missing << tr("bramka, kompresor i limiter – brak wtyczek CAPS (Fedora: ladspa-caps-plugins, "
-                      "Ubuntu/Arch: caps)");
-    if (!dsp::webrtcAvailable())
-        missing << tr("redukcja szumów – brak modułu PipeWire aec-webrtc");
+    if (dsp::dspPluginPath().isEmpty())
+        missing << tr("bramka, de-esser, kompresor i limiter – brak wtyczki logihub_dsp.so (przeinstaluj LogiHub)");
+    if (dsp::rnnoisePath().isEmpty() && !dsp::webrtcAvailable())
+        missing << tr("redukcja szumów – brak RNNoise i modułu PipeWire aec-webrtc");
     if (!missing.isEmpty())
         body->addWidget(theme::hint(tr("⚠ Niedostępne w tym systemie: %1. Pozostałe efekty działają.")
                                         .arg(missing.join("; "))));
@@ -227,8 +227,25 @@ VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString
     auto *b = module(tr("Filtr górnoprzepustowy"), tr("Usuwa dudnienie, stuki w biurko i szum wentylatorów."),
                      &VoiceSettings::highpass);
     slider(b, {}, 40, 250, &VoiceSettings::highpassHz, " Hz");
-    b = module(tr("Redukcja szumów"), tr("Inteligentne tłumienie szumu tła (WebRTC) i echa z głośników."),
+    b = module(tr("Redukcja szumów"), tr("Usuwa szum tła: wentylatory, klawiaturę, otoczenie."),
                &VoiceSettings::noiseReduction);
+    {
+        auto *nr = new QComboBox;
+        if (!dsp::rnnoisePath().isEmpty())
+            nr->addItem(tr("RNNoise – sieć neuronowa (najlepsza)"), 0);
+        if (dsp::webrtcAvailable())
+            nr->addItem(tr("WebRTC – także echo z głośników"), 1);
+        b->addWidget(nr);
+        connect(nr, &QComboBox::currentIndexChanged, this, [this, nr] {
+            m_v.nrMode = nr->currentData().toInt();
+            changed();
+        });
+        m_sync << [this, nr] {
+            QSignalBlocker blk(nr);
+            const int i = nr->findData(m_v.nrMode);
+            nr->setCurrentIndex(i >= 0 ? i : 0);
+        };
+    }
     b->addStretch();
     b = module(tr("Bramka szumów"), tr("Wycisza mikrofon, gdy nie mówisz."), &VoiceSettings::gate);
     slider(b, tr("Próg otwarcia"), -70, -20, &VoiceSettings::gateOpenDb, " dB");
@@ -326,7 +343,13 @@ void VoiceEditor::apply(bool structural)
         m_lastStructure = m_v.structureKey();
         DspRunner::instance().start(m_id, dsp::voiceConf(m_id, m_desc, m_mic, m_v));
     } else {
-        DspRunner::instance().setControls("logihub." + m_id + ".in", m_v.controls());
+        // tylko parametry węzłów obecnych w łańcuchu (moduł mógł zostać pominięty z braku wtyczki)
+        const QString conf = dsp::voiceConf(m_id, m_desc, m_mic, m_v);
+        QList<QPair<QString, double>> ctl;
+        for (const auto &c : m_v.controls())
+            if (conf.contains("name = " + c.first.section(':', 0, 0) + " "))
+                ctl << c;
+        DspRunner::instance().setControls("logihub." + m_id + ".in", ctl);
     }
 }
 

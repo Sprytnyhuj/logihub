@@ -1014,8 +1014,8 @@ void DevicePage::buildMic()
     const QString kw = audioKeyword(m_info.name);
     const QString mic = nodeFor(kw, false);
     QWidget *voice = mic.isEmpty() ? nullptr
-                                   : new VoiceEditor(m_info.key, "voice-" + slug(), m_info.name + " – Blue VO!CE", mic);
-    tab("Blue VO!CE", {voice ? voice : theme::hint(tr("Nie znaleziono mikrofonu w PipeWire."))});
+                                   : new VoiceEditor(m_info.key, "voice-" + slug(), m_info.name + " – Voice FX", mic);
+    tab("Voice FX", {voice ? voice : theme::hint(tr("Nie znaleziono mikrofonu w PipeWire."))});
     QWidget *monitor = mic.isEmpty() ? nullptr
                                      : new SidetoneCard(m_info.key, "monitor-" + slug(), mic, {},
                                                         tr("Odsłuch mikrofonu"),
@@ -1038,7 +1038,7 @@ void DevicePage::buildHeadset()
     if (!sink.isEmpty())
         tab(tr("Equalizer"), {new EqEditor(m_info.key, "eq-" + slug(), m_info.name + " – Equalizer", sink)});
     if (!mic.isEmpty())
-        tab("Blue VO!CE", {new VoiceEditor(m_info.key, "voice-" + slug(), m_info.name + " – Blue VO!CE", mic)});
+        tab("Voice FX", {new VoiceEditor(m_info.key, "voice-" + slug(), m_info.name + " – Voice FX", mic)});
     QWidget *side = (mic.isEmpty() || sink.isEmpty())
                         ? nullptr
                         : new SidetoneCard(m_info.key, "sidetone-" + slug(), mic, sink, tr("Sidetone"),
@@ -1048,7 +1048,7 @@ void DevicePage::buildHeadset()
     QVBoxLayout *b;
     auto *info = theme::card(tr("Sterowanie sprzętowe"), {}, &b);
     b->addWidget(theme::hint(tr("Podświetlenie LIGHTSYNC, sprzętowy sidetone i wbudowany EQ słuchawek używają "
-                                "nieopisanego protokołu Logitecha (raporty 0xF0–0xF3). Equalizer, Blue VO!CE i "
+                                "nieopisanego protokołu Logitecha (raporty 0xF0–0xF3). Equalizer, Voice FX i "
                                 "sidetone działają tu programowo – jak w G Hub.")));
     tab(tr("Dźwięk"), {volumeCard(kw, true, false, tr("Głośność słuchawek")), info});
 }
@@ -1060,7 +1060,7 @@ void DevicePage::buildGenericAudio()
     if (!sink.isEmpty())
         tab(tr("Equalizer"), {new EqEditor(m_info.key, "eq-" + slug(), m_info.name + " – Equalizer", sink)});
     if (!mic.isEmpty())
-        tab("Blue VO!CE", {new VoiceEditor(m_info.key, "voice-" + slug(), m_info.name + " – Blue VO!CE", mic)});
+        tab("Voice FX", {new VoiceEditor(m_info.key, "voice-" + slug(), m_info.name + " – Voice FX", mic)});
     QWidget *side = nullptr;
     if (!mic.isEmpty())
         side = new SidetoneCard(m_info.key, "sidetone-" + slug(), mic, sink,

@@ -27,19 +27,23 @@ a RGB innych firm przez **OpenRGB**.
 ![Czułość](docs/czulosc.png)
 
 ### Mikrofony i słuchawki – dowolnej firmy (USB i Bluetooth)
-- **Blue VO!CE** – przetwarzanie głosu w czasie rzeczywistym: filtr górnoprzepustowy, redukcja szumów
-  i echa (WebRTC), bramka szumów, de-esser, kompresor, limiter, barwa głosu, presety (Broadcast,
-  Podcast, Gaming…) i **własne presety**. Tworzy wirtualny mikrofon dla Discorda, gier i OBS.
+- **Voice FX** – przetwarzanie głosu w czasie rzeczywistym w stylu Blue VO!CE z G Hub: filtr
+  górnoprzepustowy, **redukcja szumów AI (RNNoise)** albo WebRTC (szum + echo), bramka szumów,
+  **dynamiczny de-esser**, kompresor, limiter, barwa głosu, presety (Broadcast, Podcast, Gaming…)
+  i **własne presety**. Tworzy wirtualny mikrofon dla Discorda, gier i OBS.
+  *To nie jest Blue VO!CE Logitecha* – oryginał jest zamknięty i działa tylko na Windows/macOS.
+  LogiHub ma własne efekty (mała wtyczka LADSPA, sprawdzona testami na sygnałach testowych),
+  które dają ten sam zestaw modułów.
 - **Equalizer 10-pasmowy** z presetami (FPS, Muzyka, Filmy, Bas…) i własnymi presetami.
 - **Sidetone / odsłuch** – słyszysz własny głos w słuchawkach.
 - Głośność i wyciszenie, sprzętowe wzmocnienie mikrofonu (ALSA).
 - Zmiany suwaków działają na żywo, bez przerywania dźwięku.
 
-![Blue VO!CE](docs/blue-voice.png)
+![Voice FX](docs/blue-voice.png)
 ![Equalizer](docs/equalizer.png)
 
 ### Mikrofon Yeti GX
-Podświetlenie (2 strefy), jasność, Blue VO!CE, wzmocnienie, odsłuch.
+Podświetlenie (2 strefy), jasność, Voice FX, wzmocnienie, odsłuch.
 
 ### RGB wszystkich urządzeń (przez OpenRGB)
 Jeśli działa serwer OpenRGB (`openrgb --server`), LogiHub pokazuje wszystkie jego urządzenia – karty
@@ -61,7 +65,7 @@ na GNOME, KDE i innych środowiskach (Wayland i X11). Na GNOME warto wiedzieć:
 | | KDE Plasma | GNOME |
 |---|---|---|
 | Okno, wszystkie funkcje | ✅ | ✅ |
-| PipeWire (Blue VO!CE, EQ, sidetone) | ✅ | ✅ (Fedora, Ubuntu 22.10+ i nowsze mają PipeWire domyślnie) |
+| PipeWire (Voice FX, EQ, sidetone) | ✅ | ✅ (Fedora, Ubuntu 22.10+ i nowsze mają PipeWire domyślnie) |
 | Ikona w zasobniku | ✅ | ⚠️ GNOME domyślnie nie ma zasobnika – zainstaluj rozszerzenie **AppIndicator and KStatusNotifierItem Support** (w Ubuntu jest wbudowane). Bez niego zamknięcie okna kończy LogiHub, więc efekty audio działają tylko przy otwartym oknie. |
 | Autostart | ✅ | ✅ (`~/.config/autostart`) |
 | Qt6 | zwykle zainstalowane | trzeba doinstalować biblioteki Qt6 (patrz niżej) |
@@ -104,9 +108,9 @@ Potrzebne pakiety do zbudowania:
 
 | System | Polecenie |
 |---|---|
-| Fedora | `sudo dnf install cmake ninja-build gcc-c++ qt6-qtbase-devel ladspa-caps-plugins` |
-| Ubuntu / Debian | `sudo apt install cmake ninja-build g++ qt6-base-dev caps` |
-| Arch | `sudo pacman -S cmake ninja qt6-base caps` |
+| Fedora | `sudo dnf install cmake ninja-build gcc-c++ qt6-qtbase-devel ladspa-devel rnnoise-devel` |
+| Ubuntu / Debian | `sudo apt install cmake ninja-build g++ qt6-base-dev ladspa-sdk librnnoise-dev` |
+| Arch | `sudo pacman -S cmake ninja qt6-base ladspa rnnoise` |
 | Bazzite / Silverblue | budowanie w distroboxie: `distrobox create -n builder -i fedora:44`, w nim pakiety jak dla Fedory |
 
 **Dostęp do urządzeń bez roota.** Jeśli `install.sh` napisze, że nie ma dostępu do `/dev/hidraw*`,
@@ -127,7 +131,7 @@ sudo udevadm control --reload && sudo udevadm trigger
 ## Ograniczenia
 
 - **Słuchawki Logitech G735**: sprzętowe RGB, sidetone i wbudowany EQ używają nieopisanego protokołu
-  (raporty 0xF0–0xF3), więc EQ, Blue VO!CE i sidetone działają tu programowo.
+  (raporty 0xF0–0xF3), więc EQ, Voice FX i sidetone działają tu programowo.
 - **Klawiatury innych firm** z własnym protokołem (np. GSKY) – tylko gdy obsługuje je OpenRGB.
 - Rysunek przycisków jest dla G502 X / G502 X PLUS; inne myszy HID++ mają listę przycisków.
 - Inne myszy i klawiatury Logitecha z tymi samymi funkcjami HID++ (0x1004, 0x2201, 0x8060, 0x8071,

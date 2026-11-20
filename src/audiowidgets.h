@@ -31,7 +31,7 @@ private:
     QPushButton *m_del;
 };
 
-// Blue VO!CE - łańcuch efektów głosu dla mikrofonu.
+// Voice FX (w stylu Blue VO!CE) - łańcuch efektów głosu dla mikrofonu.
 class VoiceEditor : public QWidget {
     Q_OBJECT
 public:

@@ -29,6 +29,12 @@ fi
 
 mkdir -p "$BIN_DIR" "$APPS"
 install -m 755 "$SRC/build/logihub" "$BIN_DIR/logihub"
+# Wtyczki Voice FX (bramka, kompresor, de-esser, limiter, RNNoise)
+if [ -d "$SRC/build/ladspa" ]; then
+    LADSPA_DIR="$HOME/.local/lib/logihub/ladspa"
+    mkdir -p "$LADSPA_DIR"
+    for f in "$SRC"/build/ladspa/*.so*; do install -m 755 "$f" "$LADSPA_DIR/"; done
+fi
 # Ikona (rysowana przez samą aplikację) w rozmiarach 16-256 px
 QT_QPA_PLATFORM=offscreen "$BIN_DIR/logihub" --export-icons "$HOME/.local/share/icons/hicolor"
 touch "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
@@ -67,9 +73,9 @@ for d in /sys/class/hidraw/*; do
         break
     fi
 done
-# Programowe efekty audio (Blue VO!CE) potrzebują wtyczek CAPS (LADSPA)
-[ -f /usr/lib64/ladspa/caps.so ] || [ -f /usr/lib/ladspa/caps.so ] || [ -f /usr/lib/x86_64-linux-gnu/ladspa/caps.so ] || {
+if [ ! -f "$SRC/build/ladspa/logihub_dsp.so" ]; then
     echo
-    echo "Uwaga: brak wtyczek CAPS - bramka, kompresor i limiter w Blue VO!CE nie zadziałają."
-    echo "  Fedora: sudo dnf install ladspa-caps-plugins   Ubuntu: sudo apt install caps   Arch: sudo pacman -S caps"
-}
+    echo "Uwaga: wtyczki Voice FX nie zostały zbudowane (brak ladspa.h). Doinstaluj i uruchom ./install.sh ponownie:"
+    echo "  Fedora: sudo dnf install ladspa-devel rnnoise-devel   Ubuntu: sudo apt install ladspa-sdk librnnoise-dev"
+    echo "  Arch:   sudo pacman -S ladspa rnnoise"
+fi

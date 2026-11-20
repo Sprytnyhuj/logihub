@@ -29,8 +29,11 @@ context.modules = [
     { name = libpipewire-module-adapter }
 )PW";
 
-// Wtyczki CAPS (LADSPA) - ścieżka zależy od dystrybucji; pusta, gdy brak.
-const QString kCaps = dsp::capsPath();
+// Przeliczenie suwaków UI (0-100 %) na parametry efektów
+double compThresholdDb(const VoiceSettings &v) { return -5.0 - v.compThreshold * 0.4; } // 0% -> -5 dB, 100% -> -45 dB
+double compRatio(const VoiceSettings &v) { return 1.0 + v.compStrength * 0.09; }        // 0% -> 1:1, 100% -> 10:1
+double deessMaxReduction(const VoiceSettings &v) { return v.deessDb * 2.0; }           // suwak 0-10 -> 0-20 dB
+bool useRnnoise(const VoiceSettings &v) { return v.nrMode == 0 && !dsp::rnnoisePath().isEmpty(); }
 
 QString quoteDesc(QString s)
 {
@@ -48,6 +51,7 @@ void VoiceSettings::load(QSettings &s, const QString &p)
     highpass = s.value(p + "highpass", d.highpass).toBool();
     highpassHz = s.value(p + "highpassHz", d.highpassHz).toInt();
     noiseReduction = s.value(p + "noiseReduction", d.noiseReduction).toBool();
+    nrMode = s.value(p + "nrMode", d.nrMode).toInt();
     gate = s.value(p + "gate", d.gate).toBool();
     gateOpenDb = s.value(p + "gateOpenDb", d.gateOpenDb).toInt();
     deesser = s.value(p + "deesser", d.deesser).toBool();
@@ -69,6 +73,7 @@ void VoiceSettings::save(QSettings &s, const QString &p) const
     s.setValue(p + "highpass", highpass);
     s.setValue(p + "highpassHz", highpassHz);
     s.setValue(p + "noiseReduction", noiseReduction);
+    s.setValue(p + "nrMode", nrMode);
     s.setValue(p + "gate", gate);
     s.setValue(p + "gateOpenDb", gateOpenDb);
     s.setValue(p + "deesser", deesser);
@@ -85,7 +90,8 @@ void VoiceSettings::save(QSettings &s, const QString &p) const
 
 QString VoiceSettings::structureKey() const
 {
-    return QString("%1%2%3%4%5%6").arg(highpass).arg(noiseReduction).arg(gate).arg(deesser).arg(compressor).arg(limiter);
+    return QString("%1%2%3%4%5%6%7")
+        .arg(highpass).arg(noiseReduction).arg(nrMode).arg(gate).arg(deesser).arg(compressor).arg(limiter);
 }
 
 QList<QPair<QString, double>> VoiceSettings::controls() const
@@ -94,14 +100,14 @@ QList<QPair<QString, double>> VoiceSettings::controls() const
     if (highpass)
         c << qMakePair(QString("hp:Freq"), double(highpassHz));
     if (gate) {
-        c << qMakePair(QString("gate:open (dB)"), double(gateOpenDb));
-        c << qMakePair(QString("gate:close (dB)"), double(qMax(-80, gateOpenDb - 15)));
+        c << qMakePair(QString("gate:Open (dB)"), double(gateOpenDb));
+        c << qMakePair(QString("gate:Close (dB)"), double(qMax(-90, gateOpenDb - 10)));
     }
     if (deesser)
-        c << qMakePair(QString("deess:Gain"), double(-deessDb));
+        c << qMakePair(QString("deess:Max reduction (dB)"), deessMaxReduction(*this));
     if (compressor) {
-        c << qMakePair(QString("comp:threshold"), compThreshold / 100.0);
-        c << qMakePair(QString("comp:strength"), compStrength / 100.0);
+        c << qMakePair(QString("comp:Threshold (dB)"), compThresholdDb(*this));
+        c << qMakePair(QString("comp:Ratio"), compRatio(*this));
     }
     c << qMakePair(QString("bass:Gain"), double(bassDb));
     c << qMakePair(QString("pres:Gain"), double(presenceDb));
@@ -220,13 +226,28 @@ void SidetoneSettings::save(QSettings &s, const QString &p) const
 // ================= Generowanie konfiguracji =================
 namespace dsp {
 
-QString capsPath()
+// Wtyczki LogiHub: paczka (bin/../lib/ladspa), katalog budowania (build/ladspa),
+// instalacja ze źródeł (~/.local/lib/logihub/ladspa).
+static QString pluginPath(const QString &file)
 {
-    for (const char *p : {"/usr/lib64/ladspa/caps.so", "/usr/lib/ladspa/caps.so",
-                          "/usr/lib/x86_64-linux-gnu/ladspa/caps.so", "/usr/local/lib/ladspa/caps.so"})
+    const QString app = QCoreApplication::applicationDirPath();
+    for (const QString &dir : {app + "/../lib/ladspa", app + "/ladspa", app + "/../ladspa",
+                               QDir::homePath() + "/.local/lib/logihub/ladspa"}) {
+        const QString p = QDir::cleanPath(dir + "/" + file);
         if (QFile::exists(p))
             return p;
+    }
     return {};
+}
+
+QString dspPluginPath()
+{
+    return pluginPath("logihub_dsp.so");
+}
+
+QString rnnoisePath()
+{
+    return pluginPath("logihub_rnnoise.so");
 }
 
 bool webrtcAvailable()
@@ -243,7 +264,8 @@ QString voiceConf(const QString &id, const QString &description, const QString &
     const QString base = "logihub." + id;
     QString c = kHeader;
     QString source = micNode;
-    if (v.noiseReduction && dsp::webrtcAvailable()) {
+    const QString fx = dspPluginPath();
+    if (v.noiseReduction && !useRnnoise(v) && dsp::webrtcAvailable()) {
         c += QString(R"PW(    { name = libpipewire-module-echo-cancel
       args = {
         library.name = aec/libspa-aec-webrtc
@@ -270,29 +292,32 @@ QString voiceConf(const QString &id, const QString &description, const QString &
         nodes << def;
         chain << name + ":" + in << name + ":" + out;
     };
+    if (v.noiseReduction && useRnnoise(v)) // redukcja szumów siecią neuronową (RNNoise)
+        add("nr", QString(R"PW({ type = ladspa name = nr plugin = "%1" label = logihub_rnnoise control = { "VAD threshold (%)" = 0.0 } })PW")
+                      .arg(rnnoisePath()), "In", "Out");
     if (v.highpass)
         add("hp", QString(R"PW({ type = builtin name = hp label = bq_highpass control = { "Freq" = %1 "Q" = 0.707 } })PW")
                       .arg(num(v.highpassHz)), "In", "Out");
-    if (v.gate && !kCaps.isEmpty())
-        add("gate", QString(R"PW({ type = ladspa name = gate plugin = "%1" label = Noisegate control = { "open (dB)" = %2 "close (dB)" = %3 "attack (ms)" = 1.0 "mains (Hz)" = 0.0 } })PW")
-                        .arg(kCaps, num(v.gateOpenDb), num(qMax(-80, v.gateOpenDb - 15))), "in", "out");
-    if (v.deesser)
-        add("deess", QString(R"PW({ type = builtin name = deess label = bq_peaking control = { "Freq" = 6500.0 "Q" = 2.0 "Gain" = %1 } })PW")
-                         .arg(num(-v.deessDb)), "In", "Out");
+    if (v.gate && !fx.isEmpty())
+        add("gate", QString(R"PW({ type = ladspa name = gate plugin = "%1" label = logihub_gate control = { "Open (dB)" = %2 "Close (dB)" = %3 "Release (ms)" = 120.0 } })PW")
+                        .arg(fx, num(v.gateOpenDb), num(qMax(-90, v.gateOpenDb - 10))), "In", "Out");
+    if (v.deesser && !fx.isEmpty()) // dynamiczny: ścisza sybilanty tylko gdy się pojawią
+        add("deess", QString(R"PW({ type = ladspa name = deess plugin = "%1" label = logihub_deesser control = { "Frequency (Hz)" = 5500.0 "Threshold (dB)" = -32.0 "Max reduction (dB)" = %2 } })PW")
+                         .arg(fx, num(deessMaxReduction(v))), "In", "Out");
     add("bass", QString(R"PW({ type = builtin name = bass label = bq_lowshelf control = { "Freq" = 150.0 "Q" = 0.707 "Gain" = %1 } })PW")
                     .arg(num(v.bassDb)), "In", "Out");
     add("pres", QString(R"PW({ type = builtin name = pres label = bq_peaking control = { "Freq" = 3500.0 "Q" = 1.0 "Gain" = %1 } })PW")
                     .arg(num(v.presenceDb)), "In", "Out");
     add("air", QString(R"PW({ type = builtin name = air label = bq_highshelf control = { "Freq" = 10000.0 "Q" = 0.707 "Gain" = %1 } })PW")
                    .arg(num(v.airDb)), "In", "Out");
-    if (v.compressor && !kCaps.isEmpty())
-        add("comp", QString(R"PW({ type = ladspa name = comp plugin = "%1" label = Compress control = { "measure" = 1.0 "mode" = 0.0 "threshold" = %2 "strength" = %3 "attack" = 0.1 "release" = 0.3 "gain (dB)" = 0.0 } })PW")
-                        .arg(kCaps, num(v.compThreshold / 100.0), num(v.compStrength / 100.0)), "in", "out");
+    if (v.compressor && !fx.isEmpty())
+        add("comp", QString(R"PW({ type = ladspa name = comp plugin = "%1" label = logihub_compressor control = { "Threshold (dB)" = %2 "Ratio" = %3 "Attack (ms)" = 8.0 "Release (ms)" = 150.0 "Makeup (dB)" = 0.0 } })PW")
+                        .arg(fx, num(compThresholdDb(v)), num(compRatio(v))), "In", "Out");
     add("gain", QString(R"PW({ type = builtin name = gain label = linear control = { "Mult" = %1 "Add" = 0.0 } })PW")
                     .arg(num(std::pow(10.0, v.outGainDb / 20.0))), "In", "Out");
-    if (v.limiter && !kCaps.isEmpty())
-        add("lim", QString(R"PW({ type = ladspa name = lim plugin = "%1" label = Compress control = { "measure" = 0.0 "mode" = 2.0 "threshold" = 0.9 "strength" = 1.0 "attack" = 0.0 "release" = 0.2 "gain (dB)" = 0.0 } })PW")
-                       .arg(kCaps), "in", "out");
+    if (v.limiter && !fx.isEmpty()) // twardy sufit -1 dBFS
+        add("lim", QString(R"PW({ type = ladspa name = lim plugin = "%1" label = logihub_limiter control = { "Ceiling (dB)" = -1.0 "Release (ms)" = 60.0 } })PW")
+                       .arg(fx), "In", "Out");
 
     QStringList links;
     for (int i = 1; i + 1 < chain.size(); i += 2)

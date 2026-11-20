@@ -35,7 +35,7 @@ cat > "$APPS/logihub.desktop" <<EOF
 Type=Application
 Name=LogiHub
 GenericName=Ustawienia urządzeń Logitech
-Comment=Mysz, mikrofon i słuchawki – DPI, przyciski, RGB, Blue VO!CE, equalizer
+Comment=Mysz, mikrofon i słuchawki – DPI, przyciski, RGB, Voice FX, equalizer
 Exec=$BIN
 Icon=logihub
 StartupWMClass=logihub
@@ -63,11 +63,6 @@ for d in /sys/class/hidraw/*; do
         break
     fi
 done
-if ! ls /usr/lib64/ladspa/caps.so /usr/lib/ladspa/caps.so /usr/lib/x86_64-linux-gnu/ladspa/caps.so >/dev/null 2>&1; then
-    echo
-    echo "Info: bez wtyczek CAPS Blue VO!CE działa bez bramki, kompresora i limitera."
-    echo "  Fedora: sudo dnf install ladspa-caps-plugins  (Silverblue/Bluefin: rpm-ostree install ladspa-caps-plugins)"
-fi
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo; echo "Info: dodaj ~/.local/bin do PATH, albo uruchamiaj z menu." ;; esac
 
 # Aktualizacja z poziomu aplikacji: uruchom nową wersję

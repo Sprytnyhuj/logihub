@@ -26,19 +26,22 @@ Written in C++/Qt6: no Python, no Electron, no root. It talks to Logitech mice a
 ![Sensitivity](docs/czulosc.png)
 
 ### Microphones and headsets – any brand (USB and Bluetooth)
-- **Blue VO!CE-style voice processing** in real time: high-pass filter, noise & echo reduction (WebRTC),
-  noise gate, de-esser, compressor, limiter, voice EQ, presets (Broadcast, Podcast, Gaming…) and
-  **your own presets**. Creates a virtual microphone for Discord, games and OBS.
+- **Voice FX** – real-time voice processing in the style of G Hub's Blue VO!CE: high-pass filter,
+  **AI noise reduction (RNNoise)** or WebRTC noise & echo reduction, noise gate, **dynamic de-esser**,
+  compressor, limiter, voice EQ, presets (Broadcast, Podcast, Gaming…) and **your own presets**.
+  Creates a virtual microphone for Discord, games and OBS.
+  *This is not Logitech's Blue VO!CE* – that is proprietary and Windows/macOS only. LogiHub ships its own
+  effects (a small LADSPA plugin, tested on test signals) that cover the same set of modules.
 - **10-band equalizer** with presets (FPS, Music, Movies, Bass…) and custom presets.
 - **Sidetone / mic monitoring** – hear your own voice in the headset.
 - Volume and mute, hardware mic gain (ALSA).
 - All sliders apply live, without interrupting audio.
 
-![Blue VO!CE](docs/blue-voice.png)
+![Voice FX](docs/blue-voice.png)
 ![Equalizer](docs/equalizer.png)
 
 ### Yeti GX microphone
-Lighting (2 zones), brightness, voice processing, gain, monitoring.
+Lighting (2 zones), brightness, Voice FX, gain, monitoring.
 
 ### RGB for everything (via OpenRGB)
 If an OpenRGB server is running (`openrgb --server`), LogiHub lists all its devices – GPUs, motherboards,
@@ -79,9 +82,9 @@ cd logihub
 
 | Distro | Build dependencies |
 |---|---|
-| Fedora | `sudo dnf install cmake ninja-build gcc-c++ qt6-qtbase-devel ladspa-caps-plugins` |
-| Ubuntu / Debian | `sudo apt install cmake ninja-build g++ qt6-base-dev caps` |
-| Arch | `sudo pacman -S cmake ninja qt6-base caps` |
+| Fedora | `sudo dnf install cmake ninja-build gcc-c++ qt6-qtbase-devel ladspa-devel rnnoise-devel` |
+| Ubuntu / Debian | `sudo apt install cmake ninja-build g++ qt6-base-dev ladspa-sdk librnnoise-dev` |
+| Arch | `sudo pacman -S cmake ninja qt6-base ladspa rnnoise` |
 | Bazzite / Silverblue / Bluefin | use option 1, or build inside a distrobox (`distrobox create -n builder -i fedora:42`) |
 
 ### Device access without root
@@ -93,10 +96,9 @@ sudo cp udev/70-logihub.rules /etc/udev/rules.d/
 sudo udevadm control --reload && sudo udevadm trigger
 ```
 
-### Optional: full voice processing
-The noise gate, compressor and limiter use the CAPS LADSPA plugins
-(Fedora: `ladspa-caps-plugins`, on atomic Fedora: `rpm-ostree install ladspa-caps-plugins`;
-Ubuntu/Arch: `caps`). Without them the remaining effects still work.
+Voice FX needs no extra system packages – its effects (and RNNoise) ship inside the package. When building
+from source, `ladspa.h` is required for the effects and `rnnoise` is optional (without it noise reduction
+uses WebRTC).
 
 ## Updating
 
@@ -114,7 +116,7 @@ KDE and others (Wayland and X11).
 | | KDE Plasma | GNOME |
 |---|---|---|
 | Window, all features | ✅ | ✅ |
-| PipeWire (voice processing, EQ, sidetone) | ✅ | ✅ (default on Fedora, Ubuntu 22.10+) |
+| PipeWire (Voice FX, EQ, sidetone) | ✅ | ✅ (default on Fedora, Ubuntu 22.10+) |
 | Tray icon | ✅ | ⚠️ GNOME has no tray by default – install the **AppIndicator and KStatusNotifierItem Support** extension (built into Ubuntu). Without it, closing the window quits LogiHub, so audio effects only run while the window is open. |
 | Autostart | ✅ | ✅ |
 
@@ -128,7 +130,7 @@ KDE and others (Wayland and X11).
 ## Limitations
 
 - **Logitech G735 headset:** hardware RGB, sidetone and onboard EQ use an undocumented protocol
-  (reports 0xF0–0xF3), so EQ, voice processing and sidetone are done in software.
+  (reports 0xF0–0xF3), so EQ, Voice FX and sidetone are done in software.
 - **Other brands' keyboards** with proprietary protocols – only if OpenRGB supports them.
 - The button picture is for the G502 X / G502 X PLUS; other HID++ mice get a button list.
 - Other Logitech mice with the same HID++ features (0x1004, 0x2201, 0x8060, 0x8071, 0x8100) should work

@@ -1,5 +1,5 @@
 #pragma once
-// Programowe efekty audio (jak w G Hub na Windowsie): Blue VO!CE, equalizer, sidetone.
+// Programowe efekty audio (jak w G Hub na Windowsie): Voice FX (w stylu Blue VO!CE), equalizer, sidetone.
 // Każdy łańcuch to osobny proces `pipewire -c <conf>` z modułem filter-chain.
 #include <QHash>
 #include <QObject>
@@ -14,6 +14,7 @@ struct VoiceSettings {
     int preset = 1;
     bool highpass = true;    int highpassHz = 80;
     bool noiseReduction = true;
+    int nrMode = 0;          // 0 = RNNoise (AI), 1 = WebRTC (+ usuwanie echa z głośników)
     bool gate = true;        int gateOpenDb = -45;
     bool deesser = true;     int deessDb = 4;
     bool compressor = true;  int compThreshold = 40; int compStrength = 50;
@@ -50,8 +51,9 @@ struct SidetoneSettings {
 };
 
 namespace dsp {
-// Opcjonalne zależności - gdy ich brak, odpowiednie moduły Blue VO!CE są pomijane.
-QString capsPath();      // wtyczki CAPS (bramka, kompresor, limiter); pusty gdy brak
+// Wtyczki LogiHub (LADSPA) - gdy brak, odpowiednie moduły Voice FX są pomijane.
+QString dspPluginPath(); // bramka, kompresor, de-esser, limiter
+QString rnnoisePath();   // redukcja szumów RNNoise (AI)
 bool webrtcAvailable();  // moduł redukcji szumów/echa PipeWire (aec-webrtc)
 QString voiceConf(const QString &id, const QString &description, const QString &micNode, const VoiceSettings &v);
 QString eqConf(const QString &id, const QString &description, const QString &sinkNode, const EqSettings &e);

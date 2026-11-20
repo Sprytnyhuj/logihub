@@ -4,15 +4,21 @@
 set -euo pipefail
 VERSION="${1:-dev}"
 
-dnf -y -q install cmake ninja-build gcc-c++ qt6-qtbase-devel qt6-qtwayland patchelf file >/dev/null
+dnf -y -q install cmake ninja-build gcc gcc-c++ qt6-qtbase-devel qt6-qtwayland patchelf file ladspa-devel >/dev/null
+dnf -y -q install rnnoise-devel >/dev/null 2>&1 || echo "Uwaga: brak rnnoise-devel - paczka bez RNNoise"
 
 cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
-ninja -C /build logihub
+ninja -C /build logihub logihub_dsp
+ninja -C /build logihub_rnnoise 2>/dev/null || true
 
 D=/stage/logihub
-rm -rf /stage && mkdir -p "$D/bin" "$D/lib" "$D/plugins"
+rm -rf /stage && mkdir -p "$D/bin" "$D/lib/ladspa" "$D/plugins"
 cp /build/logihub "$D/bin/"
 strip "$D/bin/logihub"
+# Wtyczki Voice FX (+ librnnoise.so.0 obok, rpath $ORIGIN)
+cp /build/ladspa/* "$D/lib/ladspa/"
+strip "$D"/lib/ladspa/logihub_*.so
+echo "== wtyczki Voice FX: $(ls "$D/lib/ladspa" | tr '\n' ' ')"
 
 QTPLUG=/usr/lib64/qt6/plugins
 cd "$QTPLUG"
