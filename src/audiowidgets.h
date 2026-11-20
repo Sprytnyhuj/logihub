@@ -8,7 +8,27 @@ class QComboBox;
 class QLabel;
 class QSlider;
 class QTimer;
+class QPushButton;
 class Toggle;
+
+// Lista presetów: wbudowane + własne (zapisane w QSettings pod `group`) + „Własny”.
+// Identyfikatory: "b:<nr>" wbudowany, "u:<nazwa>" użytkownika, "c" niezapisane ustawienia.
+class PresetBar : public QWidget {
+    Q_OBJECT
+public:
+    PresetBar(const QString &group, const QList<QPair<QString, QString>> &builtins, QWidget *parent = nullptr);
+    void select(const QString &id);
+    QString current() const;
+signals:
+    void picked(const QString &id);           // wybrano preset wbudowany lub własny
+    void saveRequested(const QString &name);  // właściciel zapisuje dane pod group/name
+private:
+    void refill();
+    QString m_group;
+    QList<QPair<QString, QString>> m_builtins;
+    QComboBox *m_combo;
+    QPushButton *m_del;
+};
 
 // Blue VO!CE - łańcuch efektów głosu dla mikrofonu.
 class VoiceEditor : public QWidget {
@@ -24,7 +44,7 @@ private:
     VoiceSettings m_v;
     QString m_lastStructure;
     Toggle *m_enabled;
-    QComboBox *m_preset;
+    PresetBar *m_presets;
     QWidget *m_modules;
     QList<std::function<void()>> m_sync; // odświeżenie kontrolek z m_v
     QTimer *m_debounce;
@@ -39,8 +59,9 @@ private:
     void apply();
     QString m_key, m_id, m_desc, m_sink;
     EqSettings m_e;
+    void setGains(const std::array<int, 10> &g);
     Toggle *m_enabled;
-    QComboBox *m_preset;
+    PresetBar *m_presets;
     QList<QSlider *> m_sliders;
     QList<QLabel *> m_values;
     QTimer *m_debounce;

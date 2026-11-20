@@ -5,7 +5,10 @@
 #include <QComboBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
 #include <QProcess>
 #include <QPushButton>
 #include <QSettings>
@@ -49,6 +52,97 @@ void restoreDefault(const QString &nodeName)
 }
 }
 
+// ======================= Presety =======================
+PresetBar::PresetBar(const QString &group, const QList<QPair<QString, QString>> &builtins, QWidget *parent)
+    : QWidget(parent), m_group(group), m_builtins(builtins)
+{
+    auto *h = new QHBoxLayout(this);
+    h->setContentsMargins(0, 0, 0, 0);
+    m_combo = new QComboBox;
+    auto *save = new QPushButton(tr("Zapisz jako…"));
+    m_del = new QPushButton(tr("Usuń"));
+    h->addWidget(new QLabel(tr("Preset:")));
+    h->addWidget(m_combo, 1);
+    h->addWidget(save);
+    h->addWidget(m_del);
+    refill();
+
+    connect(m_combo, &QComboBox::currentIndexChanged, this, [this] {
+        const QString id = current();
+        m_del->setEnabled(id.startsWith("u:"));
+        if (id != "c")
+            emit picked(id);
+    });
+    connect(save, &QPushButton::clicked, this, [this] {
+        const QString cur = current();
+        bool ok = false;
+        QString name = QInputDialog::getText(this, tr("Zapisz preset"), tr("Nazwa presetu:"), QLineEdit::Normal,
+                                             cur.startsWith("u:") ? cur.mid(2) : QString(), &ok);
+        name.replace('/', '-').replace('\\', '-');
+        name = name.trimmed();
+        if (!ok || name.isEmpty())
+            return;
+        QSettings s;
+        s.beginGroup(m_group);
+        const bool exists = s.childKeys().contains(name) || s.childGroups().contains(name);
+        s.endGroup();
+        if (exists && QMessageBox::question(this, tr("Zapisz preset"),
+                                            tr("Preset „%1” już istnieje. Nadpisać?").arg(name)) != QMessageBox::Yes)
+            return;
+        emit saveRequested(name);
+        refill();
+        select("u:" + name);
+    });
+    connect(m_del, &QPushButton::clicked, this, [this] {
+        const QString id = current();
+        if (!id.startsWith("u:"))
+            return;
+        if (QMessageBox::question(this, tr("Usuń preset"), tr("Usunąć preset „%1”?").arg(id.mid(2)))
+            != QMessageBox::Yes)
+            return;
+        QSettings().remove(m_group + "/" + id.mid(2));
+        refill();
+        select("c");
+    });
+}
+
+void PresetBar::refill()
+{
+    QSignalBlocker b(m_combo);
+    const QString cur = current();
+    m_combo->clear();
+    for (const auto &p : m_builtins)
+        m_combo->addItem(p.second, p.first);
+    QSettings s;
+    s.beginGroup(m_group);
+    QStringList users = s.childKeys() + s.childGroups();
+    s.endGroup();
+    users.removeDuplicates();
+    users.sort(Qt::CaseInsensitive);
+    if (!users.isEmpty())
+        m_combo->insertSeparator(m_combo->count());
+    for (const QString &u : users)
+        m_combo->addItem("★ " + u, "u:" + u);
+    m_combo->insertSeparator(m_combo->count());
+    m_combo->addItem(tr("Własny (niezapisany)"), "c");
+    const int idx = m_combo->findData(cur);
+    m_combo->setCurrentIndex(idx >= 0 ? idx : m_combo->count() - 1);
+    m_del->setEnabled(current().startsWith("u:"));
+}
+
+void PresetBar::select(const QString &id)
+{
+    QSignalBlocker b(m_combo);
+    const int idx = m_combo->findData(id);
+    m_combo->setCurrentIndex(idx >= 0 ? idx : m_combo->findData("c"));
+    m_del->setEnabled(current().startsWith("u:"));
+}
+
+QString PresetBar::current() const
+{
+    return m_combo->currentData().toString();
+}
+
 // ======================= Blue VO!CE =======================
 VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString &description,
                          const QString &micNode, QWidget *parent)
@@ -72,14 +166,17 @@ VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString
         tr("Przetwarzanie głosu w czasie rzeczywistym – tak jak w G Hub. Tworzy mikrofon „%1”, "
            "który po włączeniu staje się domyślnym mikrofonem (Discord, gry, OBS).").arg(description),
         &body, m_enabled));
-    auto *top = new QHBoxLayout;
-    m_preset = new QComboBox;
-    m_preset->addItems(VoiceSettings::presetNames());
-    top->addWidget(new QLabel(tr("Preset:")));
-    top->addWidget(m_preset, 1);
+    QList<QPair<QString, QString>> builtins;
+    const QStringList names = VoiceSettings::presetNames();
+    for (int i = 1; i < names.size(); ++i) // 0 = „Własny” - obsługuje PresetBar
+        builtins << qMakePair(QString("b:%1").arg(i), names[i]);
+    m_presets = new PresetBar("voicePresets", builtins);
+    body->addWidget(m_presets);
+    auto *defRow = new QHBoxLayout;
     auto *def = new QPushButton(tr("Ustaw jako domyślny mikrofon"));
-    top->addWidget(def);
-    body->addLayout(top);
+    defRow->addStretch();
+    defRow->addWidget(def);
+    body->addLayout(defRow);
 
     m_modules = new QWidget;
     auto *grid = new QGridLayout(m_modules);
@@ -155,17 +252,30 @@ VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString
             restoreDefault(m_mic);
         }
     });
-    connect(m_preset, &QComboBox::currentIndexChanged, this, [this](int p) {
-        if (p == 0)
-            return;
+    connect(m_presets, &PresetBar::picked, this, [this](const QString &id) {
         const bool en = m_v.enabled;
-        m_v = VoiceSettings::fromPreset(p);
+        if (id.startsWith("b:")) {
+            m_v = VoiceSettings::fromPreset(id.mid(2).toInt());
+        } else {
+            QSettings s;
+            VoiceSettings v;
+            v.load(s, "voicePresets/" + id.mid(2) + "/");
+            m_v = v;
+            m_v.preset = 0;
+        }
         m_v.enabled = en;
+        QSettings().setValue(m_key + "presetSel", id);
         syncUi();
         changed(true);
     });
+    connect(m_presets, &PresetBar::saveRequested, this, [this](const QString &name) {
+        QSettings s;
+        m_v.save(s, "voicePresets/" + name + "/");
+        s.setValue(m_key + "presetSel", "u:" + name);
+    });
     connect(def, &QPushButton::clicked, this, [this] { DspRunner::instance().makeDefault("logihub." + m_id); });
 
+    m_presets->select(s.value(m_key + "presetSel", m_v.preset > 0 ? QString("b:%1").arg(m_v.preset) : "c").toString());
     syncUi();
     if (m_v.enabled)
         apply(true);
@@ -174,9 +284,8 @@ VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString
 void VoiceEditor::syncUi()
 {
     {
-        QSignalBlocker b1(m_enabled), b2(m_preset);
+        QSignalBlocker b1(m_enabled);
         m_enabled->setChecked(m_v.enabled);
-        m_preset->setCurrentIndex(m_v.preset);
     }
     m_modules->setEnabled(m_v.enabled);
     for (auto &f : m_sync)
@@ -185,12 +294,12 @@ void VoiceEditor::syncUi()
 
 void VoiceEditor::changed(bool presetPick)
 {
-    if (!presetPick && m_v.preset != 0) {
-        m_v.preset = 0;
-        QSignalBlocker b(m_preset);
-        m_preset->setCurrentIndex(0);
-    }
     QSettings s;
+    if (!presetPick && m_presets->current() != "c") {
+        m_v.preset = 0;
+        m_presets->select("c");
+        s.setValue(m_key + "presetSel", "c");
+    }
     m_v.save(s, m_key);
     if (!m_v.enabled)
         return;
@@ -236,15 +345,12 @@ EqEditor::EqEditor(const QString &devKey, const QString &id, const QString &desc
                                  tr("10-pasmowy korektor dźwięku słuchawek. Po włączeniu dźwięk systemu "
                                     "przechodzi przez wyjście „%1”.").arg(description),
                                  &body, m_enabled));
-    auto *top = new QHBoxLayout;
-    m_preset = new QComboBox;
-    m_preset->addItems(EqSettings::presetNames());
-    m_preset->setCurrentIndex(m_e.preset);
-    auto *reset = new QPushButton(tr("Wyzeruj"));
-    top->addWidget(new QLabel(tr("Preset:")));
-    top->addWidget(m_preset, 1);
-    top->addWidget(reset);
-    body->addLayout(top);
+    QList<QPair<QString, QString>> builtins;
+    const QStringList names = EqSettings::presetNames();
+    for (int i = 0; i < names.size() - 1; ++i) // ostatni = „Własny” - obsługuje PresetBar
+        builtins << qMakePair(QString("b:%1").arg(i), names[i]);
+    m_presets = new PresetBar("eqPresets", builtins);
+    body->addWidget(m_presets);
 
     auto *bands = new QWidget;
     auto *grid = new QGridLayout(bands);
@@ -268,12 +374,12 @@ EqEditor::EqEditor(const QString &devKey, const QString &id, const QString &desc
         connect(sl, &QSlider::valueChanged, this, [this, i, upd](int v) {
             upd();
             m_e.gains[i] = v;
-            if (m_preset->currentIndex() != 6) {
-                QSignalBlocker b(m_preset);
-                m_preset->setCurrentIndex(6);
-                m_e.preset = 6;
-            }
             QSettings s;
+            if (m_presets->current() != "c") {
+                m_presets->select("c");
+                m_e.preset = 6;
+                s.setValue(m_key + "presetSel", "c");
+            }
             m_e.save(s, m_key);
             m_debounce->start();
         });
@@ -284,23 +390,30 @@ EqEditor::EqEditor(const QString &devKey, const QString &id, const QString &desc
     body->addWidget(theme::hint(tr("dB, zakres ±12. Hz: 32 · 64 · 125 · 250 · 500 · 1k · 2k · 4k · 8k · 16k")));
     bands->setEnabled(m_e.enabled);
 
-    auto setGains = [this](const std::array<int, 10> &g) {
-        for (int i = 0; i < 10; ++i) {
-            QSignalBlocker b(m_sliders[i]);
-            m_sliders[i]->setValue(g[i]);
-            m_values[i]->setText(QString("%1%2").arg(g[i] > 0 ? "+" : "").arg(g[i]));
-        }
-        m_e.gains = g;
+    connect(m_presets, &PresetBar::picked, this, [this](const QString &id) {
         QSettings s;
-        m_e.save(s, m_key);
-        m_debounce->start();
-    };
-    connect(m_preset, &QComboBox::currentIndexChanged, this, [this, setGains](int p) {
-        m_e.preset = p;
-        if (p != 6)
-            setGains(EqSettings::presetGains(p));
+        s.setValue(m_key + "presetSel", id);
+        if (id.startsWith("b:")) {
+            m_e.preset = id.mid(2).toInt();
+            setGains(EqSettings::presetGains(m_e.preset));
+        } else {
+            const QStringList l = s.value("eqPresets/" + id.mid(2)).toStringList();
+            std::array<int, 10> g{};
+            for (int i = 0; i < 10 && i < l.size(); ++i)
+                g[i] = qBound(-12, l[i].toInt(), 12);
+            m_e.preset = 6;
+            setGains(g);
+        }
     });
-    connect(reset, &QPushButton::clicked, this, [this] { m_preset->setCurrentIndex(0); });
+    connect(m_presets, &PresetBar::saveRequested, this, [this](const QString &name) {
+        QStringList l;
+        for (int g : m_e.gains)
+            l << QString::number(g);
+        QSettings s;
+        s.setValue("eqPresets/" + name, l);
+        s.setValue(m_key + "presetSel", "u:" + name);
+    });
+    m_presets->select(s.value(m_key + "presetSel", m_e.preset < 6 ? QString("b:%1").arg(m_e.preset) : "c").toString());
     connect(m_enabled, &Toggle::toggled, this, [this, bands](bool on) {
         m_e.enabled = on;
         QSettings s;
@@ -316,6 +429,19 @@ EqEditor::EqEditor(const QString &devKey, const QString &id, const QString &desc
     });
     if (m_e.enabled)
         apply();
+}
+
+void EqEditor::setGains(const std::array<int, 10> &g)
+{
+    for (int i = 0; i < 10; ++i) {
+        QSignalBlocker b(m_sliders[i]);
+        m_sliders[i]->setValue(g[i]);
+        m_values[i]->setText(QString("%1%2").arg(g[i] > 0 ? "+" : "").arg(g[i]));
+    }
+    m_e.gains = g;
+    QSettings s;
+    m_e.save(s, m_key);
+    m_debounce->start();
 }
 
 void EqEditor::apply()
