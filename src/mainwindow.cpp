@@ -1,5 +1,7 @@
 #include "mainwindow.h"
 #include "devicepage.h"
+#include "dsp.h"
+#include "theme.h"
 
 #include <QAction>
 #include <QApplication>
@@ -7,14 +9,16 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
 #include <QMenuBar>
-#include <QSplitter>
 #include <QStackedWidget>
 #include <QSystemTrayIcon>
+#include <QTabWidget>
 #include <QTimer>
+#include <QVBoxLayout>
 
 namespace {
 QString autostartFile()
@@ -22,13 +26,28 @@ QString autostartFile()
     return QDir::homePath() + "/.config/autostart/logihub.desktop";
 }
 
-QIcon iconFor(const QString &name)
+// Karta urządzenia w panelu bocznym.
+QWidget *deviceItem(const QString &icon, const QString &name, QLabel **status)
 {
-    if (name.startsWith("Yeti"))
-        return QIcon::fromTheme("audio-input-microphone");
-    if (name.contains("Headset") || name.startsWith("Astro"))
-        return QIcon::fromTheme("audio-headset");
-    return QIcon::fromTheme("input-mouse");
+    auto *w = new QWidget;
+    w->setAttribute(Qt::WA_TranslucentBackground);
+    auto *h = new QHBoxLayout(w);
+    h->setContentsMargins(12, 10, 12, 10);
+    h->setSpacing(12);
+    auto *tile = new QLabel;
+    tile->setPixmap(theme::deviceTile(icon, 44));
+    h->addWidget(tile);
+    auto *v = new QVBoxLayout;
+    v->setSpacing(2);
+    auto *n = new QLabel(name);
+    n->setObjectName("devName");
+    auto *s = new QLabel;
+    s->setObjectName("devStatus");
+    v->addWidget(n);
+    v->addWidget(s);
+    h->addLayout(v, 1);
+    *status = s;
+    return w;
 }
 }
 
@@ -36,21 +55,47 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
     setWindowTitle("LogiHub");
     setWindowIcon(QIcon::fromTheme("input-gaming"));
-    resize(980, 760);
+    resize(1180, 860);
 
-    auto *split = new QSplitter;
+    auto *central = new QWidget;
+    auto *h = new QHBoxLayout(central);
+    h->setContentsMargins(0, 0, 0, 0);
+    h->setSpacing(0);
+
+    auto *sidebar = new QWidget;
+    sidebar->setObjectName("sidebar");
+    sidebar->setAttribute(Qt::WA_StyledBackground);
+    sidebar->setFixedWidth(280);
+    auto *sv = new QVBoxLayout(sidebar);
+    sv->setContentsMargins(0, 24, 0, 16);
+    sv->setSpacing(4);
+    auto *brand = new QLabel("LOGIHUB");
+    brand->setObjectName("brand");
+    auto *brandSub = new QLabel(tr("urządzenia Logitech G na Linuksie"));
+    brandSub->setObjectName("brandSub");
+    auto *title = new QLabel(tr("URZĄDZENIA"));
+    title->setObjectName("sidebarTitle");
+    for (auto *l : {brand, brandSub, title})
+        l->setContentsMargins(22, 0, 22, 0);
+    sv->addWidget(brand);
+    sv->addWidget(brandSub);
+    sv->addSpacing(22);
+    sv->addWidget(title);
+    sv->addSpacing(4);
     m_list = new QListWidget;
-    m_list->setIconSize(QSize(32, 32));
-    m_list->setMinimumWidth(220);
-    m_list->setMaximumWidth(320);
+    m_list->setObjectName("devices");
+    m_list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    sv->addWidget(m_list, 1);
+
     m_stack = new QStackedWidget;
+    m_stack->setObjectName("mainStack");
     auto *empty = new QLabel(tr("Nie znaleziono urządzeń Logitech.\nPodłącz urządzenie albo wybudź mysz."));
+    empty->setObjectName("hint");
     empty->setAlignment(Qt::AlignCenter);
     m_stack->addWidget(empty);
-    split->addWidget(m_list);
-    split->addWidget(m_stack);
-    split->setStretchFactor(1, 1);
-    setCentralWidget(split);
+    h->addWidget(sidebar);
+    h->addWidget(m_stack, 1);
+    setCentralWidget(central);
 
     connect(m_list, &QListWidget::currentRowChanged, this, [this](int row) {
         m_stack->setCurrentIndex(row >= 0 && row < m_pages.size() ? row + 1 : 0);
@@ -81,6 +126,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
         m_quitting = true;
         qApp->quit();
     });
+    connect(qApp, &QApplication::aboutToQuit, this, [] { DspRunner::instance().stopAll(); });
 
     auto *timer = new QTimer(this);
     connect(timer, &QTimer::timeout, this, &MainWindow::rescan);
@@ -118,18 +164,21 @@ void MainWindow::screenshotAll(const QString &dir)
     for (int i = 0; i < m_pages.size(); ++i) {
         m_list->setCurrentRow(i);
         QApplication::processEvents();
-        // pełna wysokość strony, nie tylko widoczny fragment
-        QWidget *body = m_pages[i]->widget();
-        body->adjustSize();
-        body->grab().save(QString("%1/page%2.png").arg(dir).arg(i));
-        grab().save(QString("%1/window%2.png").arg(dir).arg(i));
+        auto *tabs = m_pages[i]->findChild<QTabWidget *>();
+        const int n = tabs ? tabs->count() : 1;
+        for (int t = 0; t < n; ++t) {
+            if (tabs)
+                tabs->setCurrentIndex(t);
+            QApplication::processEvents();
+            grab().save(QString("%1/dev%2-tab%3.png").arg(dir).arg(i).arg(t));
+        }
     }
 }
 
 void MainWindow::closeEvent(QCloseEvent *e)
 {
     if (m_tray && !m_quitting) {
-        hide(); // jak G Hub - działa dalej w zasobniku
+        hide(); // jak G Hub - działa dalej w zasobniku (efekty audio też)
         e->ignore();
         return;
     }
@@ -140,17 +189,16 @@ void MainWindow::rescan()
 {
     const QList<DeviceInfo> found = scanDevices();
     bool changed = false;
-    // usuń zniknięte
     for (int i = m_pages.size() - 1; i >= 0; --i) {
         if (!found.contains(m_pages[i]->info())) {
             DevicePage *p = m_pages.takeAt(i);
             m_stack->removeWidget(p);
             p->deleteLater();
             delete m_list->takeItem(i);
+            m_status.removeAt(i);
             changed = true;
         }
     }
-    // dodaj nowe
     for (const DeviceInfo &d : found) {
         bool have = false;
         for (DevicePage *p : m_pages)
@@ -161,11 +209,15 @@ void MainWindow::rescan()
         connect(page, &DevicePage::statusChanged, this, &MainWindow::updateList);
         m_pages.append(page);
         m_stack->addWidget(page);
-        m_list->addItem(new QListWidgetItem(iconFor(d.name), d.name));
+        auto *item = new QListWidgetItem;
+        item->setSizeHint(QSize(260, 68));
+        m_list->addItem(item);
+        QLabel *status;
+        m_list->setItemWidget(item, deviceItem(page->iconName(), d.name, &status));
+        m_status.append(status);
         changed = true;
     }
     if (changed) {
-        // kolejność w stosie: 0 = pusta strona, potem strony w kolejności listy
         for (int i = 0; i < m_pages.size(); ++i) {
             m_stack->removeWidget(m_pages[i]);
             m_stack->insertWidget(i + 1, m_pages[i]);
@@ -180,12 +232,13 @@ void MainWindow::rescan()
 void MainWindow::updateList()
 {
     QStringList tip{"LogiHub"};
-    for (int i = 0; i < m_pages.size(); ++i) {
+    for (int i = 0; i < m_pages.size() && i < m_status.size(); ++i) {
         const QString st = m_pages[i]->statusText();
-        const QString name = m_pages[i]->info().name;
-        m_list->item(i)->setText(st.isEmpty() ? name : QString("%1\n%2").arg(name, st));
+        const DeviceInfo &d = m_pages[i]->info();
+        m_status[i]->setText(st.isEmpty() ? (d.wireless ? tr("Lightspeed") : tr("USB"))
+                                          : QString("🔋 %1").arg(st));
         if (!st.isEmpty())
-            tip << QString("%1: %2").arg(name, st);
+            tip << QString("%1: %2").arg(d.name, st);
     }
     if (m_tray)
         m_tray->setToolTip(tip.join('\n'));

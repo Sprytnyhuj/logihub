@@ -104,6 +104,11 @@ struct Profile {
     void setDpi(int i, int v);
     ButtonAction button(int i) const { return ButtonAction::fromBytes(raw.mid(32 + i * 4, 4)); }
     void setButton(int i, const ButtonAction &a);
+    // Warstwa G-Shift (przyciski przytrzymane z G-Shift); FF FF FF FF = nieprzypisany
+    ButtonAction gbutton(int i) const { return ButtonAction::fromBytes(raw.mid(96 + i * 4, 4)); }
+    void setGButton(int i, const ButtonAction &a) { raw.replace(96 + i * 4, 4, a.toBytes()); }
+    QString name() const;
+    void setName(const QString &n);
     Effect lighting(int i) const { return Effect::fromBytes(raw.mid(208 + i * 11, 11)); }
     void setLighting(int i, const Effect &e);
     bool crcValid() const;

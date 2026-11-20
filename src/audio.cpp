@@ -1,5 +1,6 @@
 #include "audio.h"
 
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -22,6 +23,51 @@ QByteArray run(const QString &prog, const QStringList &args, int timeoutMs = 200
 
 namespace audio {
 
+int nodeIdByName(const QString &nodeName)
+{
+    const auto doc = QJsonDocument::fromJson(run("pw-dump", {}, 4000));
+    for (const auto &v : doc.array()) {
+        const QJsonObject o = v.toObject();
+        if (o.value("info").toObject().value("props").toObject().value("node.name").toString() == nodeName)
+            return o.value("id").toInt();
+    }
+    return -1;
+}
+
+HwGain micHwGain(const QString &keyword)
+{
+    HwGain g;
+    QFile f("/proc/asound/cards");
+    if (!f.open(QIODevice::ReadOnly))
+        return g;
+    // " 4 [GX             ]: USB-Audio - Yeti GX"
+    static const QRegularExpression re("^\\s*\\d+\\s+\\[(\\S+)\\s*\\]:.*- (.*)$");
+    for (const QByteArray &line : f.readAll().split('\n')) {
+        const auto m = re.match(QString::fromUtf8(line));
+        if (m.hasMatch() && m.captured(2).contains(keyword, Qt::CaseInsensitive)) {
+            g.card = m.captured(1);
+            break;
+        }
+    }
+    if (g.card.isEmpty())
+        return g;
+    const QString out = QString::fromUtf8(run("amixer", {"-c", g.card, "sget", "Mic"}));
+    static const QRegularExpression lim("Limits: Capture (\\d+) - (\\d+)");
+    static const QRegularExpression cur("Capture (\\d+) \\[");
+    const auto lm = lim.match(out);
+    const auto cm = cur.match(out);
+    if (lm.hasMatch() && cm.hasMatch()) {
+        g.max = lm.captured(2).toInt();
+        g.value = cm.captured(1).toInt();
+    }
+    return g;
+}
+
+void setMicHwGain(const QString &card, int value)
+{
+    QProcess::startDetached("amixer", {"-q", "-c", card, "sset", "Mic", QString::number(value)});
+}
+
 QList<AudioNode> findNodes(const QString &keyword)
 {
     QList<AudioNode> out;
@@ -38,9 +84,9 @@ QList<AudioNode> findNodes(const QString &keyword)
         const QString nm = props.value("node.name").toString();
         if (!desc.contains(keyword, Qt::CaseInsensitive) && !nm.contains(keyword, Qt::CaseInsensitive))
             continue;
-        if (nm.contains(".monitor"))
+        if (nm.contains(".monitor") || nm.startsWith("logihub."))
             continue;
-        out.append({o.value("id").toInt(), desc, cls == "Audio/Sink"});
+        out.append({o.value("id").toInt(), nm, desc, cls == "Audio/Sink"});
     }
     return out;
 }

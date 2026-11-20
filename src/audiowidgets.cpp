@@ -1,0 +1,414 @@
+#include "audiowidgets.h"
+#include "audio.h"
+#include "theme.h"
+
+#include <QComboBox>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QProcess>
+#include <QPushButton>
+#include <QSettings>
+#include <QSlider>
+#include <QTimer>
+#include <QVBoxLayout>
+
+QWidget *sliderRow(QSlider *s, const QString &suffix, QLabel **valueLabel)
+{
+    auto *w = new QWidget;
+    auto *h = new QHBoxLayout(w);
+    h->setContentsMargins(0, 0, 0, 0);
+    auto *val = new QLabel;
+    val->setMinimumWidth(64);
+    val->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    auto upd = [s, val, suffix] { val->setText(QString("%1%2").arg(s->value()).arg(suffix)); };
+    QObject::connect(s, &QSlider::valueChanged, val, upd);
+    upd();
+    h->addWidget(s, 1);
+    h->addWidget(val);
+    if (valueLabel)
+        *valueLabel = val;
+    return w;
+}
+
+namespace {
+QSlider *hslider(int min, int max, int value)
+{
+    auto *s = new QSlider(Qt::Horizontal);
+    s->setRange(min, max);
+    s->setValue(value);
+    return s;
+}
+
+// Po wyłączeniu efektu: domyślnym urządzeniem znowu jest sprzęt.
+void restoreDefault(const QString &nodeName)
+{
+    const int id = audio::nodeIdByName(nodeName);
+    if (id >= 0)
+        QProcess::startDetached("wpctl", {"set-default", QString::number(id)});
+}
+}
+
+// ======================= Blue VO!CE =======================
+VoiceEditor::VoiceEditor(const QString &devKey, const QString &id, const QString &description,
+                         const QString &micNode, QWidget *parent)
+    : QWidget(parent), m_key(devKey + "/voice/"), m_id(id), m_desc(description), m_mic(micNode)
+{
+    QSettings s;
+    m_v.load(s, m_key);
+    m_debounce = new QTimer(this);
+    m_debounce->setSingleShot(true);
+    m_debounce->setInterval(120);
+    connect(m_debounce, &QTimer::timeout, this, [this] { apply(false); });
+
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->setSpacing(14);
+
+    m_enabled = new Toggle;
+    QVBoxLayout *body;
+    outer->addWidget(theme::card(
+        "Blue VO!CE",
+        tr("Przetwarzanie głosu w czasie rzeczywistym – tak jak w G Hub. Tworzy mikrofon „%1”, "
+           "który po włączeniu staje się domyślnym mikrofonem (Discord, gry, OBS).").arg(description),
+        &body, m_enabled));
+    auto *top = new QHBoxLayout;
+    m_preset = new QComboBox;
+    m_preset->addItems(VoiceSettings::presetNames());
+    top->addWidget(new QLabel(tr("Preset:")));
+    top->addWidget(m_preset, 1);
+    auto *def = new QPushButton(tr("Ustaw jako domyślny mikrofon"));
+    top->addWidget(def);
+    body->addLayout(top);
+
+    m_modules = new QWidget;
+    auto *grid = new QGridLayout(m_modules);
+    grid->setContentsMargins(0, 0, 0, 0);
+    grid->setSpacing(14);
+    outer->addWidget(m_modules);
+
+    int cell = 0;
+    // Moduł: karta z przełącznikiem i suwakami
+    auto module = [&](const QString &title, const QString &sub, bool VoiceSettings::*flag) -> QVBoxLayout * {
+        Toggle *t = nullptr;
+        if (flag) {
+            t = new Toggle;
+            connect(t, &Toggle::toggled, this, [this, flag](bool on) {
+                m_v.*flag = on;
+                changed();
+            });
+            m_sync << [this, t, flag] { QSignalBlocker b(t); t->setChecked(m_v.*flag); };
+        }
+        QVBoxLayout *b;
+        auto *c = theme::card(title, sub, &b, t);
+        grid->addWidget(c, cell / 2, cell % 2);
+        ++cell;
+        return b;
+    };
+    auto slider = [&](QVBoxLayout *into, const QString &label, int min, int max, int VoiceSettings::*field,
+                      const QString &suffix) {
+        auto *s = hslider(min, max, m_v.*field);
+        connect(s, &QSlider::valueChanged, this, [this, field](int v) {
+            m_v.*field = v;
+            changed();
+        });
+        m_sync << [this, s, field] { QSignalBlocker b(s); s->setValue(m_v.*field); };
+        if (!label.isEmpty())
+            into->addWidget(new QLabel(label));
+        into->addWidget(sliderRow(s, suffix));
+    };
+
+    auto *b = module(tr("Filtr górnoprzepustowy"), tr("Usuwa dudnienie, stuki w biurko i szum wentylatorów."),
+                     &VoiceSettings::highpass);
+    slider(b, {}, 40, 250, &VoiceSettings::highpassHz, " Hz");
+    b = module(tr("Redukcja szumów"), tr("Inteligentne tłumienie szumu tła (WebRTC) i echa z głośników."),
+               &VoiceSettings::noiseReduction);
+    b->addStretch();
+    b = module(tr("Bramka szumów"), tr("Wycisza mikrofon, gdy nie mówisz."), &VoiceSettings::gate);
+    slider(b, tr("Próg otwarcia"), -70, -20, &VoiceSettings::gateOpenDb, " dB");
+    b = module(tr("De-esser"), tr("Łagodzi syczące głoski „s”, „sz”, „c”."), &VoiceSettings::deesser);
+    slider(b, tr("Redukcja"), 0, 10, &VoiceSettings::deessDb, " dB");
+    b = module(tr("Kompresor"), tr("Wyrównuje głośność – cichy i głośny głos brzmią podobnie."),
+               &VoiceSettings::compressor);
+    slider(b, tr("Próg"), 0, 100, &VoiceSettings::compThreshold, "%");
+    slider(b, tr("Siła"), 0, 100, &VoiceSettings::compStrength, "%");
+    b = module(tr("Limiter"), tr("Chroni słuchaczy przed przesterowaniem przy krzyku."), &VoiceSettings::limiter);
+    b->addStretch();
+    b = module(tr("Barwa głosu (EQ)"), tr("Bas, czytelność i „powietrze”."), nullptr);
+    slider(b, tr("Bas"), -10, 10, &VoiceSettings::bassDb, " dB");
+    slider(b, tr("Obecność"), -10, 10, &VoiceSettings::presenceDb, " dB");
+    slider(b, tr("Powietrze"), -10, 10, &VoiceSettings::airDb, " dB");
+    b = module(tr("Wzmocnienie wyjścia"), tr("Końcowa głośność przetworzonego głosu."), nullptr);
+    slider(b, {}, -6, 12, &VoiceSettings::outGainDb, " dB");
+    b->addStretch();
+
+    connect(m_enabled, &Toggle::toggled, this, [this](bool on) {
+        m_v.enabled = on;
+        QSettings s;
+        m_v.save(s, m_key);
+        m_modules->setEnabled(on);
+        if (on) {
+            apply(true);
+            DspRunner::instance().makeDefault("logihub." + m_id);
+        } else {
+            DspRunner::instance().stop(m_id);
+            restoreDefault(m_mic);
+        }
+    });
+    connect(m_preset, &QComboBox::currentIndexChanged, this, [this](int p) {
+        if (p == 0)
+            return;
+        const bool en = m_v.enabled;
+        m_v = VoiceSettings::fromPreset(p);
+        m_v.enabled = en;
+        syncUi();
+        changed(true);
+    });
+    connect(def, &QPushButton::clicked, this, [this] { DspRunner::instance().makeDefault("logihub." + m_id); });
+
+    syncUi();
+    if (m_v.enabled)
+        apply(true);
+}
+
+void VoiceEditor::syncUi()
+{
+    {
+        QSignalBlocker b1(m_enabled), b2(m_preset);
+        m_enabled->setChecked(m_v.enabled);
+        m_preset->setCurrentIndex(m_v.preset);
+    }
+    m_modules->setEnabled(m_v.enabled);
+    for (auto &f : m_sync)
+        f();
+}
+
+void VoiceEditor::changed(bool presetPick)
+{
+    if (!presetPick && m_v.preset != 0) {
+        m_v.preset = 0;
+        QSignalBlocker b(m_preset);
+        m_preset->setCurrentIndex(0);
+    }
+    QSettings s;
+    m_v.save(s, m_key);
+    if (!m_v.enabled)
+        return;
+    if (m_v.structureKey() != m_lastStructure)
+        apply(true);
+    else
+        m_debounce->start();
+}
+
+void VoiceEditor::apply(bool structural)
+{
+    if (!m_v.enabled)
+        return;
+    if (structural || !DspRunner::instance().running(m_id)) {
+        m_lastStructure = m_v.structureKey();
+        DspRunner::instance().start(m_id, dsp::voiceConf(m_id, m_desc, m_mic, m_v));
+    } else {
+        DspRunner::instance().setControls("logihub." + m_id + ".in", m_v.controls());
+    }
+}
+
+// ======================= Equalizer =======================
+EqEditor::EqEditor(const QString &devKey, const QString &id, const QString &description, const QString &sinkNode,
+                   QWidget *parent)
+    : QWidget(parent), m_key(devKey + "/eq/"), m_id(id), m_desc(description), m_sink(sinkNode)
+{
+    QSettings s;
+    m_e.load(s, m_key);
+    m_debounce = new QTimer(this);
+    m_debounce->setSingleShot(true);
+    m_debounce->setInterval(120);
+    connect(m_debounce, &QTimer::timeout, this, [this] {
+        if (m_e.enabled)
+            DspRunner::instance().setControls("logihub." + m_id, m_e.controls());
+    });
+
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    m_enabled = new Toggle;
+    m_enabled->setChecked(m_e.enabled);
+    QVBoxLayout *body;
+    outer->addWidget(theme::card(tr("Equalizer"),
+                                 tr("10-pasmowy korektor dźwięku słuchawek. Po włączeniu dźwięk systemu "
+                                    "przechodzi przez wyjście „%1”.").arg(description),
+                                 &body, m_enabled));
+    auto *top = new QHBoxLayout;
+    m_preset = new QComboBox;
+    m_preset->addItems(EqSettings::presetNames());
+    m_preset->setCurrentIndex(m_e.preset);
+    auto *reset = new QPushButton(tr("Wyzeruj"));
+    top->addWidget(new QLabel(tr("Preset:")));
+    top->addWidget(m_preset, 1);
+    top->addWidget(reset);
+    body->addLayout(top);
+
+    auto *bands = new QWidget;
+    auto *grid = new QGridLayout(bands);
+    grid->setHorizontalSpacing(10);
+    const auto &f = EqSettings::frequencies();
+    for (int i = 0; i < 10; ++i) {
+        auto *sl = new QSlider(Qt::Vertical);
+        sl->setRange(-12, 12);
+        sl->setValue(m_e.gains[i]);
+        sl->setMinimumHeight(220);
+        auto *val = new QLabel;
+        val->setAlignment(Qt::AlignCenter);
+        auto *freq = new QLabel(f[i] >= 1000 ? QString("%1k").arg(f[i] / 1000) : QString::number(f[i]));
+        freq->setAlignment(Qt::AlignCenter);
+        freq->setObjectName("hint");
+        auto upd = [val, sl] { val->setText(QString("%1%2").arg(sl->value() > 0 ? "+" : "").arg(sl->value())); };
+        upd();
+        grid->addWidget(val, 0, i, Qt::AlignHCenter);
+        grid->addWidget(sl, 1, i, Qt::AlignHCenter);
+        grid->addWidget(freq, 2, i, Qt::AlignHCenter);
+        connect(sl, &QSlider::valueChanged, this, [this, i, upd](int v) {
+            upd();
+            m_e.gains[i] = v;
+            if (m_preset->currentIndex() != 6) {
+                QSignalBlocker b(m_preset);
+                m_preset->setCurrentIndex(6);
+                m_e.preset = 6;
+            }
+            QSettings s;
+            m_e.save(s, m_key);
+            m_debounce->start();
+        });
+        m_sliders << sl;
+        m_values << val;
+    }
+    body->addWidget(bands);
+    body->addWidget(theme::hint(tr("dB, zakres ±12. Hz: 32 · 64 · 125 · 250 · 500 · 1k · 2k · 4k · 8k · 16k")));
+    bands->setEnabled(m_e.enabled);
+
+    auto setGains = [this](const std::array<int, 10> &g) {
+        for (int i = 0; i < 10; ++i) {
+            QSignalBlocker b(m_sliders[i]);
+            m_sliders[i]->setValue(g[i]);
+            m_values[i]->setText(QString("%1%2").arg(g[i] > 0 ? "+" : "").arg(g[i]));
+        }
+        m_e.gains = g;
+        QSettings s;
+        m_e.save(s, m_key);
+        m_debounce->start();
+    };
+    connect(m_preset, &QComboBox::currentIndexChanged, this, [this, setGains](int p) {
+        m_e.preset = p;
+        if (p != 6)
+            setGains(EqSettings::presetGains(p));
+    });
+    connect(reset, &QPushButton::clicked, this, [this] { m_preset->setCurrentIndex(0); });
+    connect(m_enabled, &Toggle::toggled, this, [this, bands](bool on) {
+        m_e.enabled = on;
+        QSettings s;
+        m_e.save(s, m_key);
+        bands->setEnabled(on);
+        if (on) {
+            apply();
+            DspRunner::instance().makeDefault("logihub." + m_id);
+        } else {
+            DspRunner::instance().stop(m_id);
+            restoreDefault(m_sink);
+        }
+    });
+    if (m_e.enabled)
+        apply();
+}
+
+void EqEditor::apply()
+{
+    DspRunner::instance().start(m_id, dsp::eqConf(m_id, m_desc, m_sink, m_e));
+}
+
+// ======================= Sidetone / odsłuch =======================
+SidetoneCard::SidetoneCard(const QString &devKey, const QString &id, const QString &micNode,
+                           const QString &sinkNode, const QString &title, const QString &subtitle, QWidget *parent)
+    : QWidget(parent), m_key(devKey + "/sidetone/"), m_id(id), m_mic(micNode), m_sink(sinkNode)
+{
+    QSettings s;
+    m_s.load(s, m_key);
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(0, 0, 0, 0);
+    auto *t = new Toggle;
+    t->setChecked(m_s.enabled);
+    QVBoxLayout *body;
+    outer->addWidget(theme::card(title, subtitle, &body, t));
+    auto *sl = hslider(0, 100, m_s.volume);
+    sl->setEnabled(m_s.enabled);
+    body->addWidget(sliderRow(sl, "%"));
+    connect(t, &Toggle::toggled, this, [this, sl](bool on) {
+        m_s.enabled = on;
+        sl->setEnabled(on);
+        QSettings s;
+        m_s.save(s, m_key);
+        if (on)
+            apply();
+        else
+            DspRunner::instance().stop(m_id);
+    });
+    connect(sl, &QSlider::valueChanged, this, [this](int v) {
+        m_s.volume = v;
+        QSettings s;
+        m_s.save(s, m_key);
+        if (m_s.enabled)
+            DspRunner::instance().setControls("logihub." + m_id + ".in", {qMakePair(QString("gain:Mult"), v / 100.0)});
+    });
+    if (m_s.enabled)
+        apply();
+}
+
+void SidetoneCard::apply()
+{
+    DspRunner::instance().start(m_id, dsp::sidetoneConf(m_id, m_mic, m_sink, m_s.volume));
+}
+
+// ======================= Głośność / wzmocnienie =======================
+QWidget *volumeCard(const QString &keyword, bool sinks, bool sources, const QString &title)
+{
+    QList<AudioNode> nodes;
+    for (const AudioNode &n : audio::findNodes(keyword))
+        if ((n.isSink && sinks) || (!n.isSink && sources))
+            nodes << n;
+    if (nodes.isEmpty())
+        return nullptr;
+    QVBoxLayout *body;
+    auto *card = theme::card(title, {}, &body);
+    for (const AudioNode &n : nodes) {
+        auto *row = new QHBoxLayout;
+        auto *name = new QLabel(n.isSink ? QObject::tr("Wyjście") : QObject::tr("Mikrofon"));
+        name->setMinimumWidth(80);
+        bool muted = false;
+        auto *sl = hslider(0, 100, qMax(0, audio::volume(n.id, &muted)));
+        auto *mute = new Toggle;
+        mute->setChecked(!muted);
+        mute->setToolTip(QObject::tr("Wł./wył. (wyciszenie)"));
+        const int id = n.id;
+        QObject::connect(sl, &QSlider::valueChanged, sl, [id](int v) { audio::setVolume(id, v); });
+        QObject::connect(mute, &Toggle::toggled, mute, [id](bool on) { audio::setMuted(id, !on); });
+        row->addWidget(name);
+        row->addWidget(sliderRow(sl, "%"), 1);
+        row->addWidget(mute);
+        body->addLayout(row);
+    }
+    return card;
+}
+
+QWidget *hwGainCard(const QString &keyword)
+{
+    const audio::HwGain g = audio::micHwGain(keyword);
+    if (g.card.isEmpty() || g.value < 0 || g.max <= 0)
+        return nullptr;
+    QVBoxLayout *body;
+    auto *card = theme::card(QObject::tr("Wzmocnienie mikrofonu (sprzętowe)"),
+                             QObject::tr("Czułość przetwornika w samym mikrofonie – ustaw tak, by głośny głos "
+                                         "nie przesterowywał."),
+                             &body);
+    auto *sl = hslider(0, g.max, g.value);
+    const QString cardId = g.card;
+    QObject::connect(sl, &QSlider::valueChanged, sl, [cardId](int v) { audio::setMicHwGain(cardId, v); });
+    body->addWidget(sliderRow(sl, QString(" / %1").arg(g.max)));
+    return card;
+}

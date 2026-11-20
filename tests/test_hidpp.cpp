@@ -1,6 +1,8 @@
+#include "dsp.h"
 #include "hidpp.h"
 
 #include <QFile>
+#include <QRegularExpression>
 #include <QTest>
 
 using namespace hidpp;
@@ -75,6 +77,46 @@ private slots:
         for (int k : {int(Qt::Key_A), int(Qt::Key_Z), int(Qt::Key_0), int(Qt::Key_F5), int(Qt::Key_Space),
                       int(Qt::Key_Left)})
             QCOMPARE(hidToQtKey(qtKeyToHid(k)), k);
+    }
+    void dspConfigsAreWellFormed()
+    {
+        QList<QPair<QString, QString>> confs;
+        for (int p = 0; p < VoiceSettings::presetNames().size(); ++p) {
+            VoiceSettings v = VoiceSettings::fromPreset(p);
+            confs << qMakePair(QString("voice%1").arg(p),
+                               dsp::voiceConf("t-voice", "Test – Blue VO!CE", "alsa_input.test", v));
+        }
+        VoiceSettings bare;
+        bare.noiseReduction = bare.highpass = bare.gate = bare.deesser = bare.compressor = bare.limiter = false;
+        confs << qMakePair(QString("voicebare"), dsp::voiceConf("t-voice", "Test", "alsa_input.test", bare));
+        EqSettings e;
+        e.gains = EqSettings::presetGains(2);
+        confs << qMakePair(QString("eq"), dsp::eqConf("t-eq", "Test – Equalizer", "alsa_output.test", e));
+        confs << qMakePair(QString("sidetone"), dsp::sidetoneConf("t-side", "alsa_input.test", "alsa_output.test", 30));
+        const QString out = qEnvironmentVariable("LOGIHUB_DSP_OUT");
+        for (const auto &c : confs) {
+            QCOMPARE(c.second.count('{'), c.second.count('}'));
+            QCOMPARE(c.second.count('['), c.second.count(']'));
+            QVERIFY2(!c.second.contains(QRegularExpression("%\\d")), qPrintable(c.first));
+            if (!out.isEmpty()) {
+                QFile f(out + "/" + c.first + ".conf");
+                QVERIFY(f.open(QIODevice::WriteOnly));
+                f.write(c.second.toUtf8());
+            }
+        }
+        // parametry zmieniane na żywo muszą istnieć w grafie
+        const QString v = dsp::voiceConf("x", "x", "m", VoiceSettings::fromPreset(1));
+        for (const auto &c : VoiceSettings::fromPreset(1).controls())
+            QVERIFY2(v.contains("name = " + c.first.section(':', 0, 0) + " "), qPrintable(c.first));
+    }
+    void profileName()
+    {
+        Profile p{sector()};
+        QCOMPARE(p.name(), QString());
+        p.setName("FPS");
+        QCOMPARE(p.name(), QString("FPS"));
+        p.setName({});
+        QCOMPARE(p.raw.mid(160, 48), QByteArray(48, char(0xff)));
     }
     void effectEncoding()
     {

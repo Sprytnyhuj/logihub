@@ -349,6 +349,28 @@ void Profile::setButton(int i, const ButtonAction &a)
     raw.replace(32 + i * 4, 4, a.toBytes());
 }
 
+QString Profile::name() const
+{
+    QString s;
+    for (int i = 0; i < 24; ++i) {
+        const quint16 ch = quint16(quint8(raw[160 + i * 2]) | (quint8(raw[161 + i * 2]) << 8));
+        if (ch == 0 || ch == 0xffff)
+            break;
+        s += QChar(ch);
+    }
+    return s;
+}
+
+void Profile::setName(const QString &n)
+{
+    const QString t = n.left(24);
+    for (int i = 0; i < 24; ++i) {
+        quint16 ch = t.isEmpty() ? 0xffff : (i < t.size() ? t[i].unicode() : 0);
+        raw[160 + i * 2] = char(ch & 0xff);
+        raw[161 + i * 2] = char(ch >> 8);
+    }
+}
+
 void Profile::setLighting(int i, const Effect &e)
 {
     raw.replace(208 + i * 11, 11, e.toBytes());

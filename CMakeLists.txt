@@ -10,11 +10,11 @@ endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Widgets Test)
 
-add_library(logicore STATIC src/hidpp.cpp src/onboard.cpp src/devices.cpp src/audio.cpp)
+add_library(logicore STATIC src/hidpp.cpp src/onboard.cpp src/devices.cpp src/audio.cpp src/dsp.cpp)
 target_include_directories(logicore PUBLIC src)
 target_link_libraries(logicore PUBLIC Qt6::Core)
 
-add_executable(logihub src/main.cpp src/mainwindow.cpp src/devicepage.cpp)
+add_executable(logihub src/main.cpp src/mainwindow.cpp src/devicepage.cpp src/theme.cpp src/audiowidgets.cpp)
 target_link_libraries(logihub PRIVATE logicore Qt6::Widgets)
 
 enable_testing()

@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 
+class QLabel;
 class QListWidget;
 class QStackedWidget;
 class QSystemTrayIcon;
@@ -23,5 +24,6 @@ private:
     QStackedWidget *m_stack;
     QSystemTrayIcon *m_tray = nullptr;
     QList<DevicePage *> m_pages;
+    QList<QLabel *> m_status;
     bool m_quitting = false;
 };

@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "theme.h"
 
 #include <QApplication>
 #include <QTimer>
@@ -11,6 +12,7 @@ int main(int argc, char **argv)
     QApplication::setApplicationDisplayName("LogiHub");
     QApplication::setDesktopFileName("logihub");
     QApplication::setQuitOnLastWindowClosed(false);
+    theme::apply();
 
     MainWindow w;
     // Tryb testowy: LOGIHUB_SCREENSHOT=katalog - zrzut każdej strony i wyjście (do testów offscreen).
