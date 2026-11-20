@@ -1,0 +1,6 @@
+# LogiHub - dostęp do urządzeń Logitech (HID++) dla zalogowanego użytkownika, bez roota.
+# Instalacja:
+#   sudo cp udev/70-logihub.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload && sudo udevadm trigger
+# Obejmuje też urządzenia za odbiornikiem Lightspeed/Unifying (ATTRS sprawdza urządzenia nadrzędne).
+KERNEL=="hidraw*", ATTRS{idVendor}=="046d", TAG+="uaccess"

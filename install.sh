@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
-# LogiHub - budowanie (w distroboxie "builder") i instalacja dla bieżącego użytkownika.
+# LogiHub - budowanie i instalacja dla bieżącego użytkownika (bez roota).
 #   ./install.sh              budowanie + instalacja / aktualizacja
 #   ./install.sh --autostart  dodatkowo uruchamianie przy logowaniu (w zasobniku)
+# Systemy niezmienne (Bazzite, Silverblue): gdy brak Qt6 na hoście, budowanie w distroboxie "builder".
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 SRC="$PWD"
 BIN_DIR="$HOME/.local/bin"
 APPS="$HOME/.local/share/applications"
 
-build() {
-    cmake -S "$SRC" -B "$SRC/build" -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
-    ninja -C "$SRC/build"
+has_qt6_dev() {
+    command -v cmake >/dev/null && command -v ninja >/dev/null \
+        && ls /usr/lib*/cmake/Qt6/Qt6Config.cmake /usr/lib/*/cmake/Qt6/Qt6Config.cmake >/dev/null 2>&1
 }
 
-if command -v cmake >/dev/null && [ -f /usr/lib64/cmake/Qt6/Qt6Config.cmake ]; then
-    build
-else
+if has_qt6_dev; then
+    cmake -S "$SRC" -B "$SRC/build" -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null
+    ninja -C "$SRC/build"
+elif command -v distrobox >/dev/null && distrobox list 2>/dev/null | grep -q " builder "; then
     distrobox enter builder -- bash -c "cd '$SRC' && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null && ninja -C build"
+else
+    echo "Brak narzędzi do budowania (cmake, ninja, Qt6). Zainstaluj:"
+    echo "  Fedora:         sudo dnf install cmake ninja-build gcc-c++ qt6-qtbase-devel"
+    echo "  Ubuntu/Debian:  sudo apt install cmake ninja-build g++ qt6-base-dev"
+    echo "  Arch:           sudo pacman -S cmake ninja qt6-base"
+    exit 1
 fi
 
 mkdir -p "$BIN_DIR" "$APPS"
@@ -46,3 +54,21 @@ command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 >/dev/null 2>&1 || true # o
 # istniejący wpis autostartu - podmień ikonę
 [ -f "$HOME/.config/autostart/logihub.desktop" ] && sed -i 's/^Icon=.*/Icon=logihub/' "$HOME/.config/autostart/logihub.desktop"
 echo "Zainstalowano: $BIN_DIR/logihub (menu: LogiHub)"
+
+# Uprawnienia do urządzeń Logitech (/dev/hidraw) - na części dystrybucji trzeba dodać regułę udev
+for d in /sys/class/hidraw/*; do
+    [ -e "$d" ] || continue
+    if grep -qi "HID_ID=.*:0000046D:" "$d/device/uevent" 2>/dev/null && [ ! -r "/dev/$(basename "$d")" ]; then
+        echo
+        echo "Uwaga: brak dostępu do /dev/$(basename "$d") (urządzenie Logitech). Dodaj regułę udev (jednorazowo):"
+        echo "  sudo cp '$SRC/udev/70-logihub.rules' /etc/udev/rules.d/"
+        echo "  sudo udevadm control --reload && sudo udevadm trigger"
+        break
+    fi
+done
+# Programowe efekty audio (Blue VO!CE) potrzebują wtyczek CAPS (LADSPA)
+[ -f /usr/lib64/ladspa/caps.so ] || [ -f /usr/lib/ladspa/caps.so ] || [ -f /usr/lib/x86_64-linux-gnu/ladspa/caps.so ] || {
+    echo
+    echo "Uwaga: brak wtyczek CAPS - bramka, kompresor i limiter w Blue VO!CE nie zadziałają."
+    echo "  Fedora: sudo dnf install ladspa-caps-plugins   Ubuntu: sudo apt install caps   Arch: sudo pacman -S caps"
+}

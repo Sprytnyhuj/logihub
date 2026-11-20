@@ -228,6 +228,9 @@ void MainWindow::closeEvent(QCloseEvent *e)
         return;
     }
     e->accept();
+    // Bez zasobnika (np. GNOME bez rozszerzenia AppIndicator) nie zostawiamy niewidocznego procesu.
+    if (!m_tray)
+        qApp->quit();
 }
 
 void MainWindow::rescan()
