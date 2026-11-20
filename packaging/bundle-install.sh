@@ -37,6 +37,7 @@ Comment=Mysz, mikrofon i słuchawki – DPI, przyciski, RGB, Blue VO!CE, equaliz
 Exec=$BIN
 Icon=logihub
 StartupWMClass=logihub
+SingleMainWindow=true
 Categories=Settings;HardwareSettings;
 Keywords=logitech;ghub;mouse;dpi;rgb;equalizer;
 EOF

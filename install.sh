@@ -41,6 +41,7 @@ Comment=Mysz, mikrofon i słuchawki Logitech – DPI, przyciski, RGB, bateria
 Exec=$BIN_DIR/logihub
 Icon=logihub
 StartupWMClass=logihub
+SingleMainWindow=true
 Categories=Settings;HardwareSettings;
 Keywords=logitech;ghub;mouse;dpi;rgb;
 EOF

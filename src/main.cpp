@@ -5,6 +5,8 @@
 #include <cstdio>
 
 #include <QApplication>
+#include <QDir>
+#include <QStandardPaths>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QTimer>
@@ -52,14 +54,21 @@ int main(int argc, char **argv)
 
     // Jedna instancja: ponowne uruchomienie pokazuje okno już działającego LogiHub
     // (ważne np. na GNOME bez zasobnika, gdzie nie ma ikony do kliknięcia).
-    const QString sockName = "logihub-" + qEnvironmentVariable("USER");
+    // Gniazdo w XDG_RUNTIME_DIR (prywatny katalog użytkownika), osobne dla każdego katalogu konfiguracji.
+    const QString cfg = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
+    const QString sockName = QDir(qEnvironmentVariable("XDG_RUNTIME_DIR", QDir::tempPath()))
+                                 .filePath(QString("logihub-%1.sock")
+                                               .arg(QString::number(qHash(cfg), 16)));
     QLocalServer server;
     if (shots.isEmpty()) {
         QLocalSocket probe;
         probe.connectToServer(sockName);
         if (probe.waitForConnected(300)) {
-            probe.write("show");
-            probe.waitForBytesWritten(300);
+            // Token aktywacji Wayland (od menu / paska zadań) - bez niego kompozytor nie pozwoli
+            // działającemu oknu wyjść na wierzch.
+            probe.write("show " + qgetenv("XDG_ACTIVATION_TOKEN") + "\n");
+            probe.waitForBytesWritten(500);
+            probe.disconnectFromServer();
             return 0;
         }
         QLocalServer::removeServer(sockName);
@@ -71,11 +80,28 @@ int main(int argc, char **argv)
 
     MainWindow w;
     QObject::connect(&server, &QLocalServer::newConnection, &w, [&] {
-        if (QLocalSocket *c = server.nextPendingConnection())
+        QLocalSocket *c = server.nextPendingConnection();
+        if (!c)
+            return;
+        auto handle = [&w, c] {
+            const QByteArray msg = c->readAll().trimmed();
             c->deleteLater();
-        w.showNormal();
-        w.raise();
-        w.activateWindow();
+            const QByteArray token = msg.startsWith("show ") ? msg.mid(5).trimmed() : QByteArray();
+            if (!token.isEmpty()) {
+                // Qt Wayland używa tego tokenu przy tworzeniu powierzchni okna - dlatego okno
+                // zminimalizowane / w tle chowamy i pokazujemy ponownie, żeby wyszło na wierzch.
+                qputenv("XDG_ACTIVATION_TOKEN", token);
+                if (w.isVisible())
+                    w.hide();
+            }
+            w.showNormal();
+            w.raise();
+            w.activateWindow();
+        };
+        if (c->bytesAvailable() > 0 || c->waitForReadyRead(300))
+            handle();
+        else
+            QObject::connect(c, &QLocalSocket::readyRead, &w, handle);
     });
     if (!shots.isEmpty()) {
         w.show();
