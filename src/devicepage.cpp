@@ -1,6 +1,7 @@
 #include "devicepage.h"
 #include "audio.h"
 #include "audiowidgets.h"
+#include "mousediagram.h"
 #include "theme.h"
 
 #include <QButtonGroup>
@@ -445,13 +446,41 @@ MouseProfile::MouseProfile(HidppDevice *dev, const DeviceInfo &info, const onboa
     segGroup->addButton(stdBtn, 0);
     segGroup->addButton(gBtn, 1);
     m_btnCard = theme::card(tr("Przypisania przycisków"),
-                            tr("Warstwa G-Shift działa, gdy przytrzymasz przycisk z funkcją „G-Shift”."), &b, seg);
-    auto *layers = new QStackedWidget;
-    const QStringList names = buttonNames(m_info.name, m_oi.buttons);
-    layers->addWidget(buttonLayer(false, names));
-    layers->addWidget(buttonLayer(true, names));
-    b->addWidget(layers);
-    connect(segGroup, &QButtonGroup::idClicked, layers, &QStackedWidget::setCurrentIndex);
+                            tr("Kliknij przycisk na myszy, żeby zmienić jego funkcję. Warstwa G-Shift działa, "
+                               "gdy przytrzymasz przycisk z funkcją „G-Shift”."),
+                            &b, seg);
+    m_btnNames = buttonNames(m_info.name, m_oi.buttons);
+    if (m_info.name.startsWith("G502") && m_oi.buttons == 11) {
+        // Widok jak w G Hub: rysunek myszy + panel edycji wybranego przycisku.
+        m_diagram = new MouseDiagram;
+        auto *panel = new QFrame;
+        panel->setObjectName("card");
+        panel->setStyleSheet("QFrame#card { background: #11141a; }");
+        auto *pl = new QHBoxLayout(panel);
+        pl->setContentsMargins(16, 12, 16, 12);
+        m_btnTitle = new QLabel;
+        m_btnTitle->setObjectName("cardTitle");
+        m_btnTitle->setMinimumWidth(230);
+        m_btnEditors = new QStackedWidget;
+        pl->addWidget(m_btnTitle);
+        pl->addWidget(m_btnEditors, 1);
+        b->addWidget(panel); // edytor nad rysunkiem - widoczny bez przewijania
+        b->addWidget(m_diagram);
+        buttonLayer(false, m_btnNames);
+        buttonLayer(true, m_btnNames);
+        connect(m_diagram, &MouseDiagram::buttonClicked, this, &MouseProfile::selectButton);
+        connect(segGroup, &QButtonGroup::idClicked, this, [this](int layer) {
+            m_layer = layer;
+            selectButton(m_diagram->selected());
+        });
+        selectButton(0);
+    } else {
+        auto *layers = new QStackedWidget;
+        layers->addWidget(buttonLayer(false, m_btnNames));
+        layers->addWidget(buttonLayer(true, m_btnNames));
+        b->addWidget(layers);
+        connect(segGroup, &QButtonGroup::idClicked, layers, &QStackedWidget::setCurrentIndex);
+    }
 
     // ---------- Podświetlenie ----------
     m_lightCard = theme::card(tr("Podświetlenie w profilu"),
@@ -521,6 +550,37 @@ MouseProfile::MouseProfile(HidppDevice *dev, const DeviceInfo &info, const onboa
     reload();
 }
 
+void MouseProfile::selectButton(int index)
+{
+    if (!m_diagram || index < 0 || index >= m_oi.buttons)
+        return;
+    m_diagram->setSelected(index);
+    m_btnEditors->setCurrentIndex(m_layer * m_oi.buttons + index);
+    m_btnTitle->setText(m_btnNames.value(index) + (m_layer ? tr("  (G-Shift)") : QString()));
+    updateDiagram();
+}
+
+void MouseProfile::updateDiagram()
+{
+    if (!m_diagram)
+        return;
+    QStringList actions;
+    for (int i = 0; i < m_oi.buttons; ++i) {
+        const ButtonRow &row = m_buttons.value(m_layer * m_oi.buttons + i);
+        if (!row.action) {
+            actions << QString();
+            continue;
+        }
+        if (row.action->currentData().toByteArray() == "key") {
+            const QString k = row.key->keySequence().toString(QKeySequence::NativeText);
+            actions << (k.isEmpty() ? tr("Klawisz – naciśnij…") : tr("Klawisz: %1").arg(k));
+        } else {
+            actions << row.action->currentText();
+        }
+    }
+    m_diagram->setButtons(m_btnNames, actions);
+}
+
 QWidget *MouseProfile::buttonLayer(bool gshift, const QStringList &names)
 {
     auto *w = new QWidget;
@@ -539,22 +599,40 @@ QWidget *MouseProfile::buttonLayer(bool gshift, const QStringList &names)
         row.key->setMaximumSequenceLength(1);
         row.key->setClearButtonEnabled(true);
         row.key->setVisible(false);
-        auto *lbl = new QLabel(names.value(i));
-        lbl->setMinimumWidth(170);
-        grid->addWidget(lbl, i, 0);
-        grid->addWidget(row.action, i, 1);
-        grid->addWidget(row.key, i, 2);
+        if (m_btnEditors) {
+            // tryb z rysunkiem: każdy przycisk ma własną stronę edytora
+            auto *page = new QWidget;
+            auto *h = new QHBoxLayout(page);
+            h->setContentsMargins(0, 0, 0, 0);
+            h->addWidget(row.action, 1);
+            h->addWidget(row.key, 1);
+            m_btnEditors->addWidget(page);
+        } else {
+            auto *lbl = new QLabel(names.value(i));
+            lbl->setMinimumWidth(170);
+            grid->addWidget(lbl, i, 0);
+            grid->addWidget(row.action, i, 1);
+            grid->addWidget(row.key, i, 2);
+        }
         QKeySequenceEdit *key = row.key;
         QComboBox *combo = row.action;
         connect(combo, &QComboBox::currentIndexChanged, this, [this, combo, key] {
             key->setVisible(combo->currentData().toByteArray() == "key");
             markDirty();
+            updateDiagram();
         });
-        connect(key, &QKeySequenceEdit::keySequenceChanged, this, [this] { markDirty(); });
+        connect(key, &QKeySequenceEdit::keySequenceChanged, this, [this] {
+            markDirty();
+            updateDiagram();
+        });
         m_buttons << row;
     }
     grid->setColumnStretch(1, 1);
     grid->setColumnStretch(2, 1);
+    if (m_btnEditors) { // edytory trafiły do m_btnEditors - pusta siatka niepotrzebna
+        delete w;
+        return nullptr;
+    }
     return w;
 }
 
@@ -662,6 +740,7 @@ void MouseProfile::loadSector(int sector)
     m_lightDirty = false;
     m_loading = false;
     updateTrack();
+    updateDiagram();
 }
 
 QString MouseProfile::backupDir() const

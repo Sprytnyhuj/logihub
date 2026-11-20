@@ -56,7 +56,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {
     setWindowTitle("LogiHub");
     setWindowIcon(theme::appIcon());
-    resize(1180, 860);
+    resize(1240, 1000);
 
     auto *central = new QWidget;
     auto *h = new QHBoxLayout(central);

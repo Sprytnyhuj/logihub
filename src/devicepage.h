@@ -9,6 +9,7 @@
 class QComboBox;
 class QKeySequenceEdit;
 class QLabel;
+class MouseDiagram;
 class QLineEdit;
 class QPushButton;
 class QRadioButton;
@@ -70,11 +71,11 @@ public:
     void reload();
 private:
     struct ButtonRow {
-        QComboBox *action;
-        QKeySequenceEdit *key;
+        QComboBox *action = nullptr;
+        QKeySequenceEdit *key = nullptr;
         hidpp::ButtonAction original;
-        bool gshift;
-        int index;
+        bool gshift = false;
+        int index = 0;
     };
     void loadSector(int sector);
     void save();
@@ -83,6 +84,13 @@ private:
     void updateTrack();
     QString backupDir() const;
     QWidget *buttonLayer(bool gshift, const QStringList &names);
+    void selectButton(int index);
+    void updateDiagram();
+    MouseDiagram *m_diagram = nullptr;
+    QStackedWidget *m_btnEditors = nullptr;
+    QLabel *m_btnTitle = nullptr;
+    QStringList m_btnNames;
+    int m_layer = 0;
 
     HidppDevice *m_dev;
     DeviceInfo m_info;

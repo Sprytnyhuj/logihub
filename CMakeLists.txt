@@ -14,7 +14,8 @@ add_library(logicore STATIC src/hidpp.cpp src/onboard.cpp src/devices.cpp src/au
 target_include_directories(logicore PUBLIC src)
 target_link_libraries(logicore PUBLIC Qt6::Core)
 
-add_executable(logihub src/main.cpp src/mainwindow.cpp src/devicepage.cpp src/theme.cpp src/audiowidgets.cpp)
+add_executable(logihub src/main.cpp src/mainwindow.cpp src/devicepage.cpp src/theme.cpp src/audiowidgets.cpp
+    src/mousediagram.cpp)
 target_link_libraries(logihub PRIVATE logicore Qt6::Widgets)
 
 enable_testing()
